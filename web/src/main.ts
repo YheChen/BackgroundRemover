@@ -8,7 +8,12 @@ import { boundingBox, toImageData, upsampleAlpha } from "./stages/composite";
 import * as segment from "./stages/segment";
 import type { Cutout, EdgeMode, Rgb } from "./types";
 
-const MODEL_URL = "./models/birefnet-lite.onnx";
+// Where the weights live. Defaults to same-origin for local dev; set
+// VITE_MODEL_URL at build time to point at a CDN. On Vercel's Hobby tier the
+// per-file upload cap is 100 MB and bandwidth is 100 GB/month, so a 159 MB
+// model served from the app's own origin is both impossible and, if it were
+// possible, would cap the site at roughly a thousand first-time visitors.
+const MODEL_URL = import.meta.env.VITE_MODEL_URL || "./models/birefnet-lite.onnx";
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 const drop = $<HTMLDivElement>("drop");

@@ -122,6 +122,17 @@ over-correct on some inputs. Score it, don't assume.
 5. **Routing.** Stage 1, last — once there is an eval set and more than one
    engine to route between. Must ship with a manual override.
 
+## Deploying
+
+The browser app is static and does all inference client-side, so it deploys
+to any static host for free. The only wrinkle is the 210 MB model, which must
+be hosted separately — Vercel's Hobby tier caps uploads at 100 MB per file and
+bandwidth at 100 GB/month.
+
+Recommended: **app on Vercel, model on Hugging Face.** Full steps, and the
+header configuration that makes a cross-origin model load work without
+killing threaded WASM, are in **[DEPLOY.md](DEPLOY.md)**.
+
 ## Licence
 
 This project is MIT (see [LICENSE](LICENSE)). **No model weights are bundled.**

@@ -39,7 +39,12 @@ export async function load(
   // that is /node_modules/.vite/deps/, which 404s. document.baseURI also
   // keeps the app working when deployed under a sub-path.
   ort.env.wasm.wasmPaths = new URL("ort/", document.baseURI).href;
-  ort.env.wasm.numThreads = Math.min(4, navigator.hardwareConcurrency || 1);
+  // Multi-threaded WASM needs SharedArrayBuffer, which needs the page to be
+  // cross-origin isolated (COOP + COEP). Asking for threads without it makes
+  // ORT fail to initialise rather than quietly degrade, so check first.
+  ort.env.wasm.numThreads = globalThis.crossOriginIsolated
+    ? Math.min(4, navigator.hardwareConcurrency || 1)
+    : 1;
 
   const bytes = await fetchWithProgress(modelUrl, onProgress);
 
@@ -92,11 +97,33 @@ function preprocess(image: Rgb): Float32Array {
   return out;
 }
 
+const MODEL_CACHE = "bgremover-model-v1";
+
 async function fetchWithProgress(
   url: string,
   onProgress?: (loaded: number, total: number) => void,
 ): Promise<ArrayBuffer> {
+  // Explicit Cache API rather than the HTTP cache: browsers evict large
+  // opportunistic responses aggressively, and re-downloading 159 MB is the
+  // difference between "instant" and "broken" on a second visit.
+  let cache: Cache | null = null;
+  try {
+    cache = await caches.open(MODEL_CACHE);
+    const hit = await cache.match(url);
+    if (hit) return hit.arrayBuffer();
+  } catch {
+    // Caches are unavailable in some contexts (private mode, no HTTPS).
+    // Not fatal — fall through to a plain fetch.
+  }
+
   const res = await fetch(url);
+  if (res.ok && cache) {
+    try {
+      await cache.put(url, res.clone());
+    } catch {
+      // Quota exceeded. The download still succeeds, it just won't persist.
+    }
+  }
   if (!res.ok) throw new Error(`model fetch failed: ${res.status} ${res.statusText}`);
   const total = Number(res.headers.get("content-length") ?? 0);
   if (!res.body || !total || !onProgress) return res.arrayBuffer();

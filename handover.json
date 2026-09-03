@@ -52,7 +52,11 @@
       "Ported stages 2-6 to TypeScript in web/src/stages/, mirroring the Python package file for file.",
       "Stage 4 in the browser is a matrix-free conjugate-gradient solver over the matting Laplacian, restricted to the unknown band (~8% of pixels). VERIFIED against a pymatting fixture: mean |diff| 0.000161, max 0.0039. `npm run verify:matte`.",
       "scripts/deform_compat.py: ONNX-compatible modulated deformable convolution built from grid_sample. Matches torchvision.ops.deform_conv2d to rel ~1e-15. Wired to `export_onnx.py --web`.",
-      "Registered birefnet-lite (MIT, Swin-Tiny, 44.4M params) as the browser model. IoU 0.9843 vs the general model, ~2x faster, 210 MB vs 857 MB."
+      "Registered birefnet-lite (MIT, Swin-Tiny, 44.4M params) as the browser model. IoU 0.9843 vs the general model, ~2x faster, 210 MB vs 857 MB.",
+      "Deployment path settled and documented in DEPLOY.md: static app on Vercel, 210 MB model on Hugging Face, joined by VITE_MODEL_URL.",
+      "web/vercel.json with COOP same-origin + COEP credentialless. Verified crossOriginIsolated === true while still allowing an off-origin model fetch.",
+      "Model is now cached via the Cache API (bgremover-model-v1), not the HTTP cache, so a second visit is instant.",
+      "Fixed: ort.env.wasm.numThreads now checks crossOriginIsolated. Requesting threads without SharedArrayBuffer makes ORT fail to initialise rather than degrade."
     ],
     "queued": [
       "Step 4: FastAPI container for the high-resolution path.",
@@ -63,12 +67,12 @@
     "branch": "main (no commits yet \u2014 scaffold is uncommitted in the working tree)",
     "done": "Stages 2-6 in Python (both backends), stage 6b REFINE, and the browser build are all working and verified. The Python suite is 45 green; the browser solver passes its numeric fixture.",
     "next_steps_in_order": [
-      "1. STILL THE BIGGEST GAP: populate eval/images/ with real photos matching eval/cases.toml, then `python eval/score.py --run` and `--score`. Everything downstream is guesswork without it.",
-      "2. Investigate the browser/Python soft-pixel gap: browser 0.045 vs Python 0.029 on the test image, though fg fraction matches and the solver passes its fixture. Most likely CG tolerance (Jacobi @1e-5 vs pymatting's incomplete Cholesky). Tune against the eval set.",
-      "3. Quantise the browser model to int8. 210 MB cold start is the app's worst property.",
-      "4. Port stage 6b (REFINE) to TypeScript; the browser currently stops at the guided upsample.",
-      "5. Profile the browser build on a phone. WORKING_PIXELS = 1600^2 is a guess.",
-      "6. Step 4: FastAPI container. Step 5: stage 1 routing."
+      "1. Deploy: export the model, upload to a public HF repo, set VITE_MODEL_URL, point Vercel at the repo with root directory 'web'. Steps are in DEPLOY.md.",
+      "2. STILL THE BIGGEST GAP: populate eval/images/ with real photos matching eval/cases.toml, then `python eval/score.py --run` and `--score`.",
+      "3. Move the pipeline into a Web Worker. It currently runs on the main thread and freezes the tab for the whole run -- tolerable at 1.9s, not at 12 MP.",
+      "4. Retry fp16 to halve the cold start. int8 is a dead end for WebGPU (see gotchas).",
+      "5. Investigate the browser/Python soft-pixel gap (0.045 vs 0.029) once the eval set exists.",
+      "6. Port stage 6b (REFINE) to TypeScript. Step 4: FastAPI container. Step 5: stage 1 routing."
     ],
     "half_finished_that_will_break": [
       "models.py registers ben2 but it has never been exported or run, and BEN2 folds stages 3-4 into the model so it needs its own pipeline path, not just a different weights file. birefnet-hr is registered but unexported too.",
@@ -106,13 +110,17 @@
     "onnxruntime-web has NO DeformConv kernel on any provider. BiRefNet's ASPP uses deformable convs, so the browser graph must come from `export_onnx.py --web`, which swaps them for grid_sample. Native onnxruntime is fine with DeformConv at opset 22 -- this is a web-only constraint, but the web target is the product.",
     "ort.env.wasm.wasmPaths must be built from document.baseURI. A bare './ort/' resolves against the bundled module's location (/node_modules/.vite/deps/ in dev) and 404s. onnxruntime-web must also be listed in vite's optimizeDeps.exclude, or the dep optimizer rewrites its internal runtime imports.",
     "The ORT .wasm/.mjs runtime files are loaded by URL at runtime, so no bundler sees them. They are copied into web/public/ort by `npm run copy:ort`, wired to predev/prebuild. vite-plugin-static-copy was tried first and does not serve them in dev.",
-    "The torch.onnx dynamo exporter cannot convert torch.repeat_interleave with an implicit dim. Use Python scalars for anything known at trace time."
+    "The torch.onnx dynamo exporter cannot convert torch.repeat_interleave with an implicit dim. Use Python scalars for anything known at trace time.",
+    "DO NOT ship an int8-quantised model to the browser. It is 159 MB vs 210, faster, and matches fp32 to IoU 0.9948 -- but only on native CPU. On onnxruntime-web's WebGPU path it returns a near-all-foreground mask: measured fg=0.974 against an expected 0.443, and 14.5s instead of 1.9s. Caught only by running it in a real browser. fp32 ships.",
+    "fp16 conversion via onnxconverter_common yields a malformed graph ('Type Error: Type (tensor(float16)) of output arg') when GridSample is block-listed. It would halve the 210 MB download, so it is worth another attempt, but it is not a one-liner.",
+    "COEP must be 'credentialless', not 'require-corp'. require-corp blocks the cross-origin model fetch; dropping COEP entirely loses SharedArrayBuffer and so single-threads the WASM fallback. credentialless is the only value that satisfies both. Dev and prod headers are kept identical so this cannot regress silently.",
+    "Vercel Hobby: 100 MB max per uploaded file and 100 GB/month bandwidth. The 210 MB model cannot go there, and even a 100 MB one would cap the site near a thousand cold visitors a month."
   ],
   "open_questions_for_user": [
     "Package/CLI name: currently `bgremover` to match the folder. Renaming is one sed away if you want something more distinctive before the first release.",
-    "GitHub remote does not exist yet \u2014 repo name, and public or private to start?",
     "Contact shadow synthesis (remove.bg's shadow_type/shadow_opacity) is not in the plan. Worth having?",
     "Should the graphic/flat-logo case bypass matting entirely? Matting softens hard vector edges, which is wrong for that subject \u2014 this is an argument for stage 1 landing earlier than step 5.",
-    "Another writer appears to be editing this working tree concurrently (segment.py, export_onnx.py, matte.py and pyproject.toml all gained correct fixes mid-session that this session did not author). Worth confirming no second agent/session is running against this repo before doing more work here."
+    "Another writer appears to be editing this working tree concurrently (segment.py, export_onnx.py, matte.py and pyproject.toml all gained correct fixes mid-session that this session did not author). Worth confirming no second agent/session is running against this repo before doing more work here.",
+    "GitHub remote and Hugging Face model repo both need creating before DEPLOY.md can be followed -- both need your accounts, so they are yours to make. Repo name and public/private?"
   ]
 }
