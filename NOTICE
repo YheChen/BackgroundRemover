@@ -23,6 +23,16 @@ BiRefNet  --  DEFAULT, permissive
              are marked non-commercial. Read the individual model card, not
              the repo licence, before adding a variant here.
 
+BiRefNet_lite  --  the browser model, permissive
+  Upstream:  https://github.com/ZhengPeng7/BiRefNet
+  Weights:   https://huggingface.co/ZhengPeng7/BiRefNet_lite
+  Licence:   MIT
+  Training:  DIS-TR (open dataset), validated on DIS-TEs and DIS-VD
+  Notes:     Swin-Tiny backbone, 44.4M params against roughly 220M for the
+             general model. Chosen for the browser build because the general
+             model's fp32 ONNX graph is 857 MB, which no one is downloading
+             into a tab.
+
 BEN2  --  optional second engine, permissive
   Weights:   https://huggingface.co/PramaLLC/BEN2
   Licence:   MIT   (BEN v1 was Apache-2.0)

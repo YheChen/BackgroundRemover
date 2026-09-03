@@ -112,12 +112,10 @@ over-correct on some inputs. Score it, don't assume.
 ## Build order
 
 1. **Baseline + eval set.** Score the existing tools on your own hard images
-   first, so there is something to beat. ← *you are here*
-2. **The pipeline, MIT-only.** Stages 2–6 as this package. Mostly done; stage 2
-   needs its first real run.
-3. **Browser build.** Export ONNX, run it through `onnxruntime-web` on WebGPU
-   with a WASM fallback. Zero marginal cost per image, and images never leave
-   the device. See [`web/`](web/README.md).
+   first, so there is something to beat. ← *still open: `eval/images/` is empty*
+2. **The pipeline, MIT-only.** ✅ Done — stages 2–6, both backends verified.
+3. **Browser build.** ✅ Done — full pipeline on WebGPU with a WASM fallback,
+   ~1.9 s per image, nothing uploaded. See [`web/`](web/README.md).
 4. **High-res container.** Same pipeline behind FastAPI, tiled stage-6
    reprojection, batch endpoint. Publish the image; do **not** run it as a free
    public GPU service.

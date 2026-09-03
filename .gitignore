@@ -27,3 +27,9 @@ out/
 *.local.*
 .DS_Store
 node_modules/
+
+# Web build
+web/dist/
+web/public/models/
+web/.vite/
+web/public/ort/

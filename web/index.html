@@ -1,0 +1,177 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>BackgroundRemover</title>
+<style>
+:root {
+  --paper:#F3F5F7; --surface:#FFF; --surface-2:#EAEEF2;
+  --ink:#16191D; --ink-soft:#3D454E; --muted:#69727C;
+  --rule:#DCE1E6; --rule-hard:#C2CAD2;
+  --accent:#DD2E55; --accent-ink:#A81E3E; --accent-wash:#FBE7EB;
+  --ok:#14664A; --ok-wash:#E0F0E8;
+  --check:#D5DBE1;
+  --f-ui: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --f-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --paper:#101317; --surface:#171B20; --surface-2:#1E242A;
+    --ink:#E7EAEE; --ink-soft:#C3CAD2; --muted:#8D97A1;
+    --rule:#272D34; --rule-hard:#39424B;
+    --accent:#FF7089; --accent-ink:#FF9DAE; --accent-wash:#2C1A20;
+    --ok:#6DD3A8; --ok-wash:#14251E;
+    --check:#232A31;
+  }
+}
+* { box-sizing:border-box; }
+body {
+  margin:0; background:var(--paper); color:var(--ink);
+  font-family:var(--f-ui); font-size:15px; line-height:1.5;
+  -webkit-font-smoothing:antialiased;
+}
+.wrap { max-width:1080px; margin:0 auto; padding:28px 20px 64px; }
+
+header { display:flex; align-items:center; gap:14px; flex-wrap:wrap; margin-bottom:6px; }
+.mark {
+  width:34px; height:34px; border:1px solid var(--rule-hard); border-radius:3px;
+  position:relative; overflow:hidden; flex:none; background-color:var(--surface);
+  background-image:
+    linear-gradient(45deg,var(--check) 25%,transparent 25%,transparent 75%,var(--check) 75%),
+    linear-gradient(45deg,var(--check) 25%,transparent 25%,transparent 75%,var(--check) 75%);
+  background-size:10px 10px; background-position:0 0,5px 5px;
+}
+.mark::after { content:""; position:absolute; inset:0;
+  background:linear-gradient(103deg,var(--accent) 0 42%,transparent 42.6%); }
+h1 { font-size:1.22rem; margin:0; letter-spacing:-.02em; font-weight:650; }
+.sub { color:var(--muted); font-size:.88rem; margin:0 0 22px; }
+
+.badge {
+  font-family:var(--f-mono); font-size:.68rem; font-weight:600; letter-spacing:.03em;
+  padding:3px 8px; border-radius:3px; background:var(--surface-2); color:var(--muted);
+  border:1px solid var(--rule);
+}
+.badge.on { background:var(--ok-wash); color:var(--ok); border-color:transparent; }
+
+/* drop zone */
+#drop {
+  border:1.5px dashed var(--rule-hard); border-radius:8px; background:var(--surface);
+  padding:56px 24px; text-align:center; cursor:pointer; transition:border-color .15s, background .15s;
+}
+#drop:hover, #drop.over { border-color:var(--accent); background:var(--accent-wash); }
+#drop h2 { margin:0 0 6px; font-size:1rem; font-weight:600; }
+#drop p { margin:0; color:var(--muted); font-size:.86rem; }
+
+/* progress */
+#progress { margin-top:18px; display:none; }
+#progress.show { display:block; }
+.bar { height:5px; border-radius:3px; background:var(--surface-2); overflow:hidden; }
+.bar > i { display:block; height:100%; width:0; background:var(--accent); transition:width .18s ease; }
+.plabel {
+  display:flex; justify-content:space-between; gap:12px;
+  font-size:.8rem; color:var(--muted); margin-bottom:6px;
+}
+.plabel .pct { font-family:var(--f-mono); font-variant-numeric:tabular-nums; }
+
+/* workspace */
+#work { display:none; margin-top:22px; }
+#work.show { display:block; }
+.stage {
+  border:1px solid var(--rule); border-radius:8px; background:var(--surface);
+  padding:14px; display:flex; justify-content:center; align-items:center; min-height:280px;
+  background-image:
+    linear-gradient(45deg,var(--check) 25%,transparent 25%,transparent 75%,var(--check) 75%),
+    linear-gradient(45deg,var(--check) 25%,transparent 25%,transparent 75%,var(--check) 75%);
+  background-size:18px 18px; background-position:0 0,9px 9px;
+}
+canvas { max-width:100%; max-height:64vh; display:block; border-radius:3px; }
+
+.controls {
+  display:flex; flex-wrap:wrap; gap:18px; align-items:flex-end;
+  margin-top:16px; padding:15px 16px;
+  border:1px solid var(--rule); border-radius:8px; background:var(--surface);
+}
+.field { display:flex; flex-direction:column; gap:5px; }
+.field > span {
+  font-size:.64rem; font-weight:600; letter-spacing:.11em; text-transform:uppercase; color:var(--muted);
+}
+select, button {
+  font-family:var(--f-ui); font-size:.86rem; padding:7px 11px;
+  border:1px solid var(--rule-hard); border-radius:5px;
+  background:var(--surface); color:var(--ink); cursor:pointer;
+}
+button.primary { background:var(--accent); border-color:var(--accent); color:#fff; font-weight:600; }
+button.primary:hover { background:var(--accent-ink); border-color:var(--accent-ink); }
+button:disabled { opacity:.45; cursor:not-allowed; }
+.spacer { flex:1 1 auto; }
+:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
+
+.note {
+  margin-top:14px; font-size:.8rem; color:var(--muted);
+  display:flex; gap:8px; flex-wrap:wrap; align-items:center;
+}
+.note code { font-family:var(--f-mono); font-size:.92em; background:var(--surface-2); padding:1px 5px; border-radius:3px; }
+#err {
+  display:none; margin-top:14px; padding:12px 14px; border-radius:6px;
+  background:var(--accent-wash); color:var(--accent-ink); font-size:.86rem;
+  border:1px solid var(--accent);
+}
+#err.show { display:block; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="mark" aria-hidden="true"></div>
+    <h1>BackgroundRemover</h1>
+    <span class="badge" id="backend">loading…</span>
+  </header>
+  <p class="sub">Runs entirely in your browser. Nothing is uploaded, and it works offline once the model is cached.</p>
+
+  <div id="drop" tabindex="0" role="button" aria-label="Choose an image">
+    <h2>Drop an image here</h2>
+    <p>or click to choose &middot; JPG, PNG, WebP</p>
+    <input type="file" id="file" accept="image/*" hidden>
+  </div>
+
+  <div id="progress">
+    <div class="plabel"><span id="plabel">Working…</span><span class="pct" id="ppct">0%</span></div>
+    <div class="bar"><i id="pbar"></i></div>
+  </div>
+
+  <div id="err"></div>
+
+  <div id="work">
+    <div class="stage"><canvas id="canvas"></canvas></div>
+    <div class="controls">
+      <label class="field">
+        <span>Edge quality</span>
+        <select id="edge">
+          <option value="matte" selected>Matte — real hair &amp; soft edges</option>
+          <option value="decontaminate">Decontaminate — fast, no fringe</option>
+          <option value="naive">Naive — coarse mask only</option>
+        </select>
+      </label>
+      <label class="field">
+        <span>Background</span>
+        <select id="bg">
+          <option value="none" selected>Transparent</option>
+          <option value="ffffff">White</option>
+          <option value="000000">Black</option>
+          <option value="808080">Mid grey</option>
+        </select>
+      </label>
+      <div class="spacer"></div>
+      <button id="rerun">Re-run</button>
+      <button id="dlMatte">Download matte</button>
+      <button id="dl" class="primary">Download PNG</button>
+    </div>
+    <div class="note">
+      <span>Mid grey is the honest preview: white backgrounds hide white fringing, black hides dark fringing.</span>
+    </div>
+  </div>
+</div>
+<script type="module" src="/src/main.ts"></script>
+</body>
+</html>

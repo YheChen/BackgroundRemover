@@ -1,60 +1,113 @@
-# Browser build — step 3
+# Browser build
 
-Not started. This is the free product, and the reason it can stay free:
-inference in the browser has zero marginal cost per image, so "free forever"
-is structurally true rather than a promise that breaks when the bill arrives.
+Background removal that runs **entirely in the browser**. No upload, no
+account, no backend — and it works offline once the model is cached.
 
-## Plan
+This is the free product, and the reason it can stay free: inference in the
+browser has zero marginal cost per image, so "free forever" is structurally
+true rather than a promise that breaks when the GPU bill arrives.
 
-- `onnxruntime-web` on **WebGPU**, with a WASM fallback. Benchmarks put
-  WebGPU at ~20x multi-threaded CPU and ~550x single-threaded, which is
-  interactive. WebGPU has shipped by default since Chrome/Edge 113 desktop and
-  Chrome 121 on Android.
-- Consume the same ONNX graph `scripts/export_onnx.py` produces, quantised.
-- Port stages 3–6 to TypeScript. Stage 3 is pure array work; stage 6 is a
-  guided filter, which is a good fit for a WebGL/WebGPU shader. Stage 4 is the
-  hard port — closed-form matting needs a sparse solver, so either compile
-  `pymatting`'s approach to WASM or use a neural matter in the graph.
-- No backend, no upload, no account. Static hosting.
+## Status
 
-## Blocker found while exporting stage 2 — read this first
+Working. Full pipeline (stages 2–6) runs on WebGPU with a WASM fallback.
+Measured on an M-series laptop: a 208×242 image completes in ~1.9 s.
 
-BiRefNet's ASPP blocks use **deformable convolutions**. The ONNX standard
-schema introduces `DeformConv` at **opset 22**, and the desktop
-`onnxruntime` Python package does implement it — but `onnxruntime-web` ships a
-different, much smaller kernel set for its WASM and WebGPU backends, and
-`DeformConv` is very unlikely to be among them.
+## Run it
 
-**Verify this before writing any browser code**, because it decides the whole
-approach:
-
-```js
-// smallest possible check: load the exported graph and see if a session builds
-const s = await ort.InferenceSession.create('birefnet-general.onnx');
+```bash
+npm install
+npm run dev          # copies the ORT runtime, then serves on :5173
 ```
 
-If it fails the same way the desktop opset-18 export did
-(`No Op registered for DeformConv`), the options are, in order of preference:
+You also need the model at `public/models/birefnet-lite.onnx`. It is **not**
+in the repo (210 MB). Build it from the Python side:
 
-1. **Pick a model without deformable convs.** BEN2 is MIT and is already in
-   the registry. Check its op set before assuming it is clean.
-2. **Replace the 20 DeformConv nodes** with an equivalent subgraph
-   (`GridSample`-based) in a post-export graph surgery pass. Doable, and it
-   keeps BiRefNet's quality.
-3. **Write a custom WebGPU kernel.** Real work; only worth it if 1 and 2 fail.
-4. Fall back to a server for stage 2 — which gives up the zero-marginal-cost
-   property that makes the free product viable, so treat it as a last resort.
+```bash
+cd .. && python scripts/export_onnx.py --model birefnet-lite --web
+python -c "import onnx,pathlib; m=onnx.load('weights/birefnet-lite-web.onnx'); \
+onnx.save_model(m, 'web/public/models/birefnet-lite.onnx', save_as_external_data=False)"
+```
 
-Note the graph is also **857 MB across two files** (`.onnx` + `.onnx.data`) at
-fp32. Quantisation is not optional for the browser; it is the difference
-between a usable download and an abandoned one.
+The `--web` flag matters — see below.
 
-## Constraints to design around
+## Why `--web` is not optional
 
-- **Cold start is the whole first impression.** A 200 MB–1 GB model download
-  on first visit reads as "broken" without real progress reporting and hard
-  caching (Cache API, not just HTTP).
-- **Mobile memory caps you well below 50 MP.** Detect and degrade: offer the
-  reduced-resolution result rather than crashing the tab.
-- Full-res stage-6 reprojection of a 50 MP image is not happening in a tab.
-  That is what the container in step 4 is for.
+BiRefNet's ASPP blocks use deformable convolutions. Exported normally those
+become `DeformConv` nodes, and **onnxruntime-web has no DeformConv kernel on
+any provider**, so the session fails to create at all:
+
+```
+Could not find an implementation for DeformConv(22) node
+```
+
+`scripts/deform_compat.py` rewrites them as the mathematically equivalent
+`grid_sample` + 1×1 convolution per kernel tap. Verified against
+`torchvision.ops.deform_conv2d` to a relative error of ~1e-15 across
+padding, stride, dilation and kernel-size variations, and the resulting graph
+matches the native one to `max|diff| = 0.00022`.
+
+It costs ~11% inference time and 21 MB of graph, and it is the difference
+between the browser build existing and not.
+
+## Which model, and why
+
+**BiRefNet_lite** (MIT, Swin-Tiny, 44.4M params) rather than the general
+model. The general model's fp32 graph is 857 MB, which nobody is downloading
+into a tab. Lite is 210 MB and agrees with it to **IoU 0.9843** on our test
+image, at roughly twice the speed.
+
+## Architecture
+
+Stages mirror the Python package one-for-one, so a fix in either can be
+carried across:
+
+| File | Stage | Notes |
+|---|---|---|
+| `stages/segment.ts` | 2 | ORT session, ImageNet preprocessing, sigmoid |
+| `stages/trimap.ts` | 3 | Separable morphology; band scaled to image size |
+| `stages/matte.ts` | 4 | Matrix-free conjugate gradient — see below |
+| `stages/decontaminate.ts` | 5 | Faithful port of Germer et al. multi-level |
+| `stages/composite.ts` | 6 | Guided-filter upsample, compositing, crop |
+
+### Stage 4 is the interesting one
+
+The Python side hands matting to pymatting, which builds a sparse Laplacian
+and factorises a preconditioner. Neither is practical here: for a 1024×1024
+image the matting Laplacian has ~81M non-zeros.
+
+Two things make it work:
+
+- **Band-only.** We solve only for the unknown band, which stage 3 keeps at
+  roughly 8% of pixels. Known pixels move to the right-hand side, turning a
+  1M-pixel problem into an ~84k-unknown one.
+- **Matrix-free.** `L` is never built. CG only needs `L@x`, and expanding one
+  3×3 window collapses the double sum to `x_i − (S + d_i·Mv)/9` — one pass to
+  build `S` and `v`, one 3×3 matvec, one pass to scatter. Not 81 multiply-adds
+  per window.
+
+**It is verified against the Python reference**, because a matting solver
+that is subtly wrong is worse than none — it looks plausible and quietly
+ruins every edge:
+
+```bash
+npm run verify:matte
+```
+
+That replays a pymatting-generated fixture through the TypeScript solver.
+Current agreement: mean |diff| 0.000161, max 0.0039 — the 1/255 floor.
+
+## Known gaps
+
+- **Soft-pixel count runs ~50% higher than Python** (0.045 vs 0.029 on the
+  test image) even though `fg` fraction matches and the solver passes its
+  fixture. Most likely CG tolerance: this uses Jacobi preconditioning to a
+  1e-5 relative residual, pymatting uses incomplete Cholesky and converges
+  tighter. Worth tuning against the eval set.
+- **`refine` (stage 6b) is not ported.** The Python side re-solves the
+  boundary at native resolution in tiles; the browser stops at the guided
+  upsample.
+- **Cold start is 210 MB.** Cached by the browser after the first visit, and
+  the download reports real byte progress, but it is still the first
+  impression. Quantising to int8 is the obvious next move.
+- **Mobile is untested.** `WORKING_PIXELS` is capped at 1600² to stay inside
+  tab memory, but that number is a guess until someone profiles a phone.

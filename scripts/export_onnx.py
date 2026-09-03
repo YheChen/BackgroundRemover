@@ -44,10 +44,17 @@ def main() -> int:
         help="allow variable input size (larger graph, slower; needed for HR tiling)",
     )
     parser.add_argument("--force", action="store_true", help="overwrite an existing export")
+    parser.add_argument(
+        "--web", action="store_true",
+        help="rewrite deformable convs as grid_sample so the graph loads in "
+             "onnxruntime-web, which has no DeformConv kernel. Writes <model>-web.onnx.",
+    )
     args = parser.parse_args()
 
     spec = models.get(args.model)
     out = models.onnx_path(args.model)
+    if args.web:
+        out = out.with_name(out.stem + "-web" + out.suffix)
 
     if out.exists() and not args.force:
         print(f"{out} already exists; pass --force to overwrite")
@@ -96,6 +103,19 @@ def main() -> int:
             return out
 
     model = FinestOnly(model)
+
+    if args.web:
+        from deform_compat import patch_birefnet
+
+        n = patch_birefnet(model)
+        if n == 0:
+            print(
+                "error: --web patched 0 deformable convs. The model's internals "
+                "have moved; check scripts/deform_compat.py.",
+                file=sys.stderr,
+            )
+            return 1
+        print(f"patched {n} deformable convs -> grid_sample (ORT-web compatible)")
 
     dummy = torch.randn(1, 3, spec.input_size, spec.input_size)
     dynamic_axes = (

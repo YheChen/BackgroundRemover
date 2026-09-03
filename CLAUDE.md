@@ -86,3 +86,26 @@ Each of these cost a debugging cycle. They are load-bearing:
 - Tests use the synthetic red-disc-on-green fixture in `tests/conftest.py`.
   Green on purpose: it gives stage 5 real contamination to fix.
 - Never commit weights or eval images. Both are gitignored.
+
+
+## Browser build (`web/`)
+
+Vanilla TypeScript + Vite + onnxruntime-web. Stages mirror the Python package
+one-for-one so a fix can be carried across. Read `web/README.md` first.
+
+Three facts that will cost you a cycle each if you rediscover them:
+
+- **`onnxruntime-web` has no `DeformConv` kernel, on any provider.** BiRefNet's
+  ASPP uses deformable convs, so the graph MUST be exported with
+  `scripts/export_onnx.py --web`, which rewrites them as `grid_sample` via
+  `scripts/deform_compat.py`. Without it the session fails to create at all.
+- **`ort.env.wasm.wasmPaths` must resolve against `document.baseURI`,** not a
+  bare `"./ort/"`. A relative path resolves against wherever the bundler put
+  the module — in Vite dev that is `/node_modules/.vite/deps/`, which 404s.
+  `onnxruntime-web` is also excluded from `optimizeDeps` for the same reason.
+- **The browser model is `birefnet-lite`, not the general one.** 210 MB
+  against 857 MB, IoU 0.9843 between them. Nobody downloads 857 MB into a tab.
+
+`npm run verify:matte` replays a pymatting fixture through the TypeScript
+solver. Run it after touching `stages/matte.ts` — a matting solver that is
+subtly wrong looks plausible and quietly ruins every edge.

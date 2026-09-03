@@ -1,0 +1,26 @@
+{
+  "name": "bgremover-web",
+  "private": true,
+  "version": "0.0.1",
+  "type": "module",
+  "license": "MIT",
+  "description": "Background removal that runs entirely in the browser. No upload, no account, no backend.",
+  "scripts": {
+    "copy:ort": "node -e \"const fs=require('fs'),path=require('path');const s='node_modules/onnxruntime-web/dist',d='public/ort';fs.mkdirSync(d,{recursive:true});for(const f of fs.readdirSync(s))if(f.endsWith('.wasm')||f.endsWith('.mjs'))fs.copyFileSync(path.join(s,f),path.join(d,f));\"",
+    "predev": "npm run copy:ort",
+    "dev": "vite",
+    "prebuild": "npm run copy:ort",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit",
+    "verify:matte": "tsx scripts/verify-matte.ts"
+  },
+  "dependencies": {
+    "onnxruntime-web": "1.23.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.0",
+    "vite": "^6.0.0",
+    "tsx": "^4.19.0"
+  }
+}

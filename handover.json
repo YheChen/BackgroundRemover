@@ -47,29 +47,34 @@
       "35 tests passing, including the 2 integration tests that un-skip once weights exist.",
       "Stage 6b implemented (stages/refine.py): EdgeMode.REFINE re-solves the matte at native resolution in overlapping, feathered tiles along the boundary. Was previously a silent alias for MATTE.",
       "CLI gained --refine-tile. 45 tests passing.",
-      "Measured on a 6.7 MP image: refine changes 3.3% of pixels vs matte, for +2s (11.8s -> 13.8s)."
+      "Measured on a 6.7 MP image: refine changes 3.3% of pixels vs matte, for +2s (11.8s -> 13.8s).",
+      "BROWSER BUILD WORKING (build-order step 3). Vanilla TS + Vite + onnxruntime-web, full pipeline on WebGPU with WASM fallback. 208x242 image in ~1.9s. Nothing uploaded.",
+      "Ported stages 2-6 to TypeScript in web/src/stages/, mirroring the Python package file for file.",
+      "Stage 4 in the browser is a matrix-free conjugate-gradient solver over the matting Laplacian, restricted to the unknown band (~8% of pixels). VERIFIED against a pymatting fixture: mean |diff| 0.000161, max 0.0039. `npm run verify:matte`.",
+      "scripts/deform_compat.py: ONNX-compatible modulated deformable convolution built from grid_sample. Matches torchvision.ops.deform_conv2d to rel ~1e-15. Wired to `export_onnx.py --web`.",
+      "Registered birefnet-lite (MIT, Swin-Tiny, 44.4M params) as the browser model. IoU 0.9843 vs the general model, ~2x faster, 210 MB vs 857 MB."
     ],
     "queued": [
-      "Step 3: browser build (onnxruntime-web + WebGPU, port stages 3-6 to TS)",
-      "Step 4: FastAPI container with tiled stage-6 reprojection for >4 MP",
-      "Step 5: stage 1 subject routing, with a manual override"
+      "Step 4: FastAPI container for the high-resolution path.",
+      "Step 5: stage 1 subject routing, with a manual override."
     ]
   },
   "in_progress": {
     "branch": "main (no commits yet \u2014 scaffold is uncommitted in the working tree)",
-    "done": "Scaffold complete AND stage 2 verified through both backends. Full pipeline runs via the CLI on the default ONNX path: `bgremover in.jpg out.png` produces a real cutout.",
+    "done": "Stages 2-6 in Python (both backends), stage 6b REFINE, and the browser build are all working and verified. The Python suite is 45 green; the browser solver passes its numeric fixture.",
     "next_steps_in_order": [
-      "1. Populate eval/images/ with real photos matching eval/cases.toml, then `python eval/score.py --run` and `--score` for baseline numbers. Do this BEFORE optimising anything \u2014 it is build-order step 1 and still the biggest gap.",
-      "2. Compare against rembg as the reference to beat: `rembg i -m birefnet-general -a in.jpg out.png`.",
-      "3. Tune REFINE against the eval set: tile size, band width, and whether it should be the default above some megapixel threshold.",
-      "4. Step 3 of the build order: browser build (onnxruntime-web + WebGPU). See web/README.md.",
-      "5. Step 4: FastAPI container for the high-resolution path.",
-      "6. Step 5: stage 1 subject routing, with a manual override."
+      "1. STILL THE BIGGEST GAP: populate eval/images/ with real photos matching eval/cases.toml, then `python eval/score.py --run` and `--score`. Everything downstream is guesswork without it.",
+      "2. Investigate the browser/Python soft-pixel gap: browser 0.045 vs Python 0.029 on the test image, though fg fraction matches and the solver passes its fixture. Most likely CG tolerance (Jacobi @1e-5 vs pymatting's incomplete Cholesky). Tune against the eval set.",
+      "3. Quantise the browser model to int8. 210 MB cold start is the app's worst property.",
+      "4. Port stage 6b (REFINE) to TypeScript; the browser currently stops at the guided upsample.",
+      "5. Profile the browser build on a phone. WORKING_PIXELS = 1600^2 is a guess.",
+      "6. Step 4: FastAPI container. Step 5: stage 1 routing."
     ],
     "half_finished_that_will_break": [
-      "models.py registers birefnet-hr and ben2 but only birefnet-general has been exported and run. BEN2 folds stages 3-4 into the model, so it needs a different pipeline path, not just a different weights file.",
-      "Mixing torch (MPS) and onnxruntime in ONE process can abort at teardown with 'recursive_mutex lock failed'. Benchmark the two backends in separate processes.",
-      "REFINE has only been exercised on one real image and synthetic scenes. Its tile/band defaults are untuned guesses until the eval set exists."
+      "models.py registers ben2 but it has never been exported or run, and BEN2 folds stages 3-4 into the model so it needs its own pipeline path, not just a different weights file. birefnet-hr is registered but unexported too.",
+      "Mixing torch (MPS) and onnxruntime in ONE process can abort at teardown with 'recursive_mutex lock failed'. Benchmark backends in separate processes.",
+      "REFINE's tile/band defaults are untuned guesses until the eval set exists.",
+      "web/public/models/ and web/public/ort/ are gitignored and must be regenerated on a fresh clone: `npm run copy:ort` runs automatically via predev/prebuild, but the model has to be exported by hand (see web/README.md)."
     ]
   },
   "gotchas": [
@@ -97,7 +102,11 @@
     "macOS has no `timeout` command. Do not wrap long commands in it.",
     "There is NO MPS regression \u2014 an earlier reading of 116 s for a warm call was measured while a concurrent process was running the 847 MB ONNX export. Re-measured clean, MPS settles at ~2 s/pass (3.80, 6.77, 3.80, 2.43, 2.07) with allocation flat at 0.91 GB. MPS is the fastest path; ONNX/CPU (4.4 s cold, 6.3 s warm) remains the DEFAULT because it needs no torch install and is what the browser build consumes.",
     "pymatting's ichol preconditioner shift list must start at 1e-3, not 1e-4. At 1e-4 the matting Laplacian is often still not positive-definite enough and every solve prints a PERFORMANCE WARNING \u2014 six of them per REFINE run. Verified that raising the shift changes the answer by at most 1/255: the preconditioner affects convergence rate, not the solution.",
-    "Benchmark timings in this repo are unreliable if anything heavy is running concurrently. Two separate wrong conclusions were drawn from contended measurements."
+    "Benchmark timings in this repo are unreliable if anything heavy is running concurrently. Two separate wrong conclusions were drawn from contended measurements.",
+    "onnxruntime-web has NO DeformConv kernel on any provider. BiRefNet's ASPP uses deformable convs, so the browser graph must come from `export_onnx.py --web`, which swaps them for grid_sample. Native onnxruntime is fine with DeformConv at opset 22 -- this is a web-only constraint, but the web target is the product.",
+    "ort.env.wasm.wasmPaths must be built from document.baseURI. A bare './ort/' resolves against the bundled module's location (/node_modules/.vite/deps/ in dev) and 404s. onnxruntime-web must also be listed in vite's optimizeDeps.exclude, or the dep optimizer rewrites its internal runtime imports.",
+    "The ORT .wasm/.mjs runtime files are loaded by URL at runtime, so no bundler sees them. They are copied into web/public/ort by `npm run copy:ort`, wired to predev/prebuild. vite-plugin-static-copy was tried first and does not serve them in dev.",
+    "The torch.onnx dynamo exporter cannot convert torch.repeat_interleave with an implicit dim. Use Python scalars for anything known at trace time."
   ],
   "open_questions_for_user": [
     "Package/CLI name: currently `bgremover` to match the folder. Renaming is one sed away if you want something more distinctive before the first release.",

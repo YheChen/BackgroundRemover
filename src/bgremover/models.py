@@ -65,6 +65,17 @@ register(
 
 register(
     ModelSpec(
+        key="birefnet-lite",
+        licence="MIT",
+        hf_repo="ZhengPeng7/BiRefNet_lite",
+        onnx_filename="birefnet-lite.onnx",
+        input_size=1024,
+        notes="Swin-Tiny, 44.4M params (~1/5 of general). The browser model.",
+    )
+)
+
+register(
+    ModelSpec(
         key="birefnet-hr",
         licence="MIT",
         hf_repo="ZhengPeng7/BiRefNet_HR",
