@@ -1,0 +1,89 @@
+{
+  "project": {
+    "name": "BackgroundRemover",
+    "what": "Free, open-source background remover with the full six-stage cutout pipeline (not just a coarse mask), built on permissively licensed weights only. Replacement for remove.bg, whose API sunsets 2026-12-01 and moves to Leonardo.Ai.",
+    "path": "/Users/yanzhenchen/Desktop/GitHub Projects/BackgroundRemover",
+    "remote": "none yet — git initialised on branch main, no commits pushed",
+    "git_identity": "Yanzhen Chen <yanzhenchen123@gmail.com>",
+    "package": "bgremover (src layout), CLI entry point `bgremover`",
+    "research_doc": "https://claude.ai/code/artifact/d826a42d-22e6-41da-b4b8-2d49d38fc9b1"
+  },
+
+  "workflow": {
+    "branching": "main is the default branch; branch before committing feature work",
+    "commit_trailers": "Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>",
+    "verified_means": "`.venv/bin/python -m pytest -q` green AND `.venv/bin/ruff check .` clean. Stage 2 additionally requires a real image through the CLI, since unit tests cannot cover it without weights.",
+    "spelling": "British in prose and identifiers (licence, colour, normalised)"
+  },
+
+  "commands": {
+    "setup": "uv venv && uv pip install -e \".[dev]\"",
+    "test": ".venv/bin/python -m pytest -q",
+    "lint": ".venv/bin/ruff check .",
+    "torch_extra": "uv pip install -e \".[torch]\"  # ~2.5 GB, reference + ONNX export only",
+    "export_weights": "python scripts/export_onnx.py --model birefnet-general",
+    "cli": "bgremover in.jpg out.png --edge matte",
+    "eval": "python eval/score.py --run  then  python eval/score.py --score"
+  },
+
+  "status": {
+    "complete": [
+      "Repo scaffold: MIT LICENSE, NOTICE (authoritative model-licence record), .gitignore, README, docs/pipeline.md, CLAUDE.md",
+      "pyproject.toml — light runtime deps (numpy/pillow/onnxruntime/pymatting/scipy), torch behind an optional extra",
+      "src/bgremover/types.py — Cutout (unflattened planes), EdgeMode ladder, Subject, trimap sentinels",
+      "src/bgremover/models.py — registry with a licence gate that refuses non-permissive weights at construction",
+      "Stage 3 trimap.py — confidence-driven unknown band unioned with a morphological minimum band",
+      "Stage 4 matte.py — pymatting closed-form solver with a band-fraction sanity guard",
+      "Stage 5 decontaminate.py — Fast Multi-Level Foreground Estimation (Germer et al.)",
+      "Stage 6 composite.py — guided-filter alpha upsample, composite, bounding box, crop",
+      "pipeline.py orchestrator with WORKING_PIXELS downscale + stage-6 reprojection",
+      "cli.py — single/batch/models subcommands, --edge ladder, --matte, --bg, --crop",
+      "27 unit tests passing, 2 integration tests correctly skipped",
+      "eval/ harness: 20-case hard-image manifest (cases.toml), score.py run/score/report, mid-grey flatten",
+      "scripts/export_onnx.py, web/README.md (step 3 plan)"
+    ],
+    "queued": [
+      "Step 3: browser build (onnxruntime-web + WebGPU, port stages 3-6 to TS)",
+      "Step 4: FastAPI container with tiled stage-6 reprojection for >4 MP",
+      "Step 5: stage 1 subject routing, with a manual override"
+    ]
+  },
+
+  "in_progress": {
+    "branch": "main (no commits yet — scaffold is uncommitted in the working tree)",
+    "done": "Everything in status.complete. Test suite green.",
+    "next_steps_in_order": [
+      "1. Make the first commit. Nothing is committed yet.",
+      "2. Run `uv pip install -e \".[torch]\"` then `python scripts/export_onnx.py --model birefnet-general`. This is the first real execution of stage 2 and WILL need fixes.",
+      "3. Fix stage 2 against reality. Three known-suspect spots in src/bgremover/stages/segment.py: (a) _MEAN/_STD ImageNet constants — verify against BiRefNet's own inference notebook; (b) _run_onnx takes outputs[-1] assuming the finest multi-scale side output is last — verify the ordering; (c) _sigmoid auto-detects whether the graph already applied it, which is a heuristic. Symptoms to expect: inverted mask, blank mask, or wrong scale.",
+      "4. Once stage 2 runs, `python -m pytest tests/test_pipeline_integration.py -v` should un-skip and pass.",
+      "5. Populate eval/images/ with real photos matching eval/cases.toml, then run the eval to get the baseline numbers. Do this BEFORE any optimisation.",
+      "6. Compare against rembg as the reference implementation to beat: `rembg i -m birefnet-general -a in.jpg out.png`."
+    ],
+    "half_finished_that_will_break": [
+      "src/bgremover/stages/segment.py has never been executed. Both backends are written from the documented APIs, not from a successful run.",
+      "EdgeMode.REFINE is accepted by the CLI and the enum but pipeline.py treats it identically to MATTE — the stage-6 local refinement pass (CascadePSP or equivalent) is not implemented yet.",
+      "models.py registers birefnet-hr and ben2, but only birefnet-general has been reasoned through. BEN2 folds stages 3-4 into the model, so it will need a different pipeline path, not just a different weights file."
+    ]
+  },
+
+  "gotchas": [
+    "LICENCE IS THE PROJECT'S DEFINING CONSTRAINT. BRIA RMBG-2.0/1.4 is CC BY-NC 4.0 and is the default model in rembg and several other wrappers. Adding it would make every downstream user non-compliant. models.py refuses it at construction; tests/test_registry.py asserts the refusal. Do not weaken this.",
+    "BiRefNet's repo licence is MIT but SOME variants were fine-tuned on private data and are non-commercial. Read the individual HF model card, not the repo licence, before registering a variant.",
+    "System python is 3.14.4; uv created the venv on 3.12.12. All deps (including torch 2.14 and onnxruntime 1.29) resolve on both, so requires-python is >=3.10 with no interpreter pin.",
+    "The first `uv pip install -e .` failed only because README.md did not exist yet — pyproject references it via `readme`. Order matters if the tree is ever rebuilt from scratch.",
+    "pymatting signatures verified against 1.1.15: estimate_alpha_cf(image, trimap) and estimate_foreground_ml(image, alpha, ..., return_background=False). Image must be float64 RGB in [0,1]; trimap float64 with 0=bg, 1=fg, anything else unknown.",
+    "Do not let EdgeMode.NAIVE become the default. It is stage 2 only and produces the hard halo-ed edges that make free tools look free.",
+    "Eval scoring is manual on purpose. IoU barely moves when a 3px hair fringe is wrong, which is exactly what users notice, so it is actively misleading here.",
+    "eval/out is flattened onto mid-grey deliberately: white backgrounds hide white fringing, black hides dark fringing.",
+    "Stage 3's band_width is the main quality/speed dial in the whole pipeline — only the unknown band goes to the expensive stage 4.",
+    "BiRefNet-HR is known to over-correct on some inputs. Newer is not automatically better; score it."
+  ],
+
+  "open_questions_for_user": [
+    "Package/CLI name: currently `bgremover` to match the folder. Renaming is one sed away if you want something more distinctive before the first release.",
+    "GitHub remote does not exist yet — repo name, and public or private to start?",
+    "Contact shadow synthesis (remove.bg's shadow_type/shadow_opacity) is not in the plan. Worth having?",
+    "Should the graphic/flat-logo case bypass matting entirely? Matting softens hard vector edges, which is wrong for that subject — this is an argument for stage 1 landing earlier than step 5."
+  ]
+}

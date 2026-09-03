@@ -1,0 +1,29 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# Models — never commit weights (large, and licences vary)
+weights/
+*.onnx
+*.pth
+*.safetensors
+
+# Eval fixtures are yours; outputs are not
+eval/images/*
+!eval/images/.gitkeep
+eval/out/
+eval/scores*.json
+
+# Local scratch
+out/
+*.local.*
+.DS_Store
+node_modules/

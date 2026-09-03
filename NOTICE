@@ -1,0 +1,70 @@
+NOTICE
+======
+
+This project's own source is MIT licensed (see LICENSE). It does not bundle
+any model weights. Weights are downloaded at runtime and carry their OWN
+licences, which are NOT MIT and are NOT granted by this project's licence.
+
+This file is the authoritative record of what is safe to ship. Keep it current
+whenever a model is added to `src/bgremover/models.py`.
+
+
+Models this project can use
+---------------------------
+
+BiRefNet  --  DEFAULT, permissive
+  Upstream:  https://github.com/ZhengPeng7/BiRefNet
+  Weights:   https://huggingface.co/ZhengPeng7/BiRefNet
+  Licence:   MIT
+  Training:  DIS5K-TR, DIS-TEs, DUTS-TR/TE, HRSOD-TR/TE, UHRSD-TR/TE,
+             HRS10K-TR/TE  (open datasets; no portrait data)
+  Notes:     The `BiRefNet` general weights are clean for commercial use.
+             Some OTHER BiRefNet variants were fine-tuned on private data and
+             are marked non-commercial. Read the individual model card, not
+             the repo licence, before adding a variant here.
+
+BEN2  --  optional second engine, permissive
+  Weights:   https://huggingface.co/PramaLLC/BEN2
+  Licence:   MIT   (BEN v1 was Apache-2.0)
+  Training:  DIS5K + a 22k proprietary set. Released weights are MIT.
+
+pymatting  --  stages 4 and 5
+  Upstream:  https://github.com/pymatting/pymatting
+  Licence:   MIT
+  Cite:      Germer et al., "Fast Multi-Level Foreground Estimation" (2020)
+             https://arxiv.org/abs/2006.14970
+
+CascadePSP  --  optional stage 6 refinement
+  Upstream:  https://github.com/hkchengrex/CascadePSP
+  Licence:   MIT
+
+
+Explicitly NOT used
+-------------------
+
+BRIA RMBG-2.0 / RMBG-1.4  --  DO NOT ADD
+  Licence:   CC BY-NC 4.0. Non-commercial only; commercial use requires a
+             paid agreement with BRIA AI.
+  Why it matters: RMBG is the default model in several popular wrappers
+  (including rembg), so a large number of "free background remover" projects
+  are non-compliant the moment they are used commercially. This project must
+  stay shippable by anyone, so RMBG is out of scope. Do not add it, and do
+  not accept a PR that adds it.
+
+withoutbg open weights  --  not used, but worth reading
+  Upstream:  https://github.com/withoutbg/withoutbg
+  Licence:   Apache-2.0 for their own layers, PLUS Meta's DINOv3 licence for
+             the backbone and Apache-2.0 for Depth Anything V2. Workable, but
+             a composite licence rather than a single clean one.
+
+
+Datasets
+--------
+
+If you fine-tune anything you intend to ship, check the dataset terms first.
+
+  DIS5K      MIT — safe.
+  P3M-10k    research release — check terms.
+  AM-2k      research release — check terms.
+  AIM-500    research release — check terms.
+  HIM2K      research release — check terms.

@@ -1,0 +1,117 @@
+# The hard-case manifest.
+#
+# Thirty to fifty images you KNOW are hard, scored by hand. Without this,
+# every model swap is a vibe check — and "newer" is not automatically better
+# (BiRefNet-HR is known to over-correct on some inputs).
+#
+# Put your own photos in eval/images/ (gitignored) and name them to match
+# `file`. Score with:  python eval/score.py
+#
+# Rubric, per image, 0-3:
+#   0  unusable — subject damaged, or background left behind
+#   1  visible failure a viewer would notice unprompted
+#   2  good; flaws only visible at 100% zoom
+#   3  indistinguishable from a hand-cut mask
+#
+# `probes` names what this case is actually testing, so a regression tells you
+# which stage broke rather than just lowering a number.
+
+[[case]]
+file = "hair-busy-bg.jpg"
+probes = ["stage-4"]
+why = "Frizzy hair against a cluttered background. The canonical matting test."
+
+[[case]]
+file = "hair-backlit.jpg"
+probes = ["stage-4", "stage-5"]
+why = "Backlit flyaway strands. Alpha AND contamination in one image."
+
+[[case]]
+file = "green-screen-spill.jpg"
+probes = ["stage-5"]
+why = "Green cast on skin and hair edges. Fails loudly without decontamination."
+
+[[case]]
+file = "chain-link-fence.jpg"
+probes = ["stage-2", "stage-3"]
+why = "Thousands of thin holes. Tests whether the band survives topology."
+
+[[case]]
+file = "bicycle-spokes.jpg"
+probes = ["stage-2", "stage-4"]
+why = "Thin repeated structures against sky."
+
+[[case]]
+file = "lace-fabric.jpg"
+probes = ["stage-4"]
+why = "Semi-transparent woven texture."
+
+[[case]]
+file = "wine-glass.jpg"
+probes = ["stage-4", "semitransparency"]
+why = "Refraction and true transparency. Expect to lose this one."
+
+[[case]]
+file = "veil-or-smoke.jpg"
+probes = ["semitransparency"]
+why = "Soft volumetric transparency. The honest ceiling of the whole approach."
+
+[[case]]
+file = "black-cat-dark-sofa.jpg"
+probes = ["stage-2"]
+why = "Low-contrast foreground/background. Segmentation, not matting."
+
+[[case]]
+file = "white-shirt-white-bg.jpg"
+probes = ["stage-2"]
+why = "The inverse low-contrast case. Very common in e-commerce."
+
+[[case]]
+file = "fur-animal.jpg"
+probes = ["stage-4"]
+why = "Dense soft edges over a large perimeter. Stage-4 cost driver."
+
+[[case]]
+file = "motion-blur-limb.jpg"
+probes = ["stage-4"]
+why = "Genuinely part-foreground pixels across many px of blur."
+
+[[case]]
+file = "product-reflective.jpg"
+probes = ["stage-2", "stage-5"]
+why = "Chrome or glossy product picking up the studio background."
+
+[[case]]
+file = "product-shadow-contact.jpg"
+probes = ["stage-2"]
+why = "Is the contact shadow foreground or background? Decide, then be consistent."
+
+[[case]]
+file = "multiple-people.jpg"
+probes = ["stage-2"]
+why = "Several subjects, some partly occluded."
+
+[[case]]
+file = "person-holding-object.jpg"
+probes = ["stage-2", "stage-1"]
+why = "Routing conflict: a portrait model may drop the object."
+
+[[case]]
+file = "eyeglasses.jpg"
+probes = ["semitransparency", "stage-5"]
+why = "Lenses show background through them, frames don't."
+
+[[case]]
+file = "high-res-50mp.jpg"
+probes = ["stage-6"]
+why = "Full-resolution reprojection. Tests tiling and memory, not the model."
+
+[[case]]
+file = "low-res-thumbnail.jpg"
+probes = ["stage-2", "stage-6"]
+why = "Upscaling a tiny input. Where over-confident models invent detail."
+
+[[case]]
+file = "graphic-flat-logo.png"
+probes = ["stage-1", "stage-2"]
+why = "Hard-edged vector art. Matting should NOT soften these edges."
