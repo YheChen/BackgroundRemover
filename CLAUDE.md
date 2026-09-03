@@ -54,8 +54,11 @@ build's input. torch is reference-only. Don't move torch into
   IoU 0.99969 on a real image. `bgremover in.jpg out.png` produces a cutout.
 - Stage 1: intentional no-op. It is step 5 of the build order, not step 1 —
   routing between one engine is a coin flip.
-- `EdgeMode.REFINE` is still an alias for `MATTE`; stage-6 local refinement
-  is not implemented.
+- `EdgeMode.REFINE` is implemented (`stages/refine.py`): re-solves the matte
+  at native resolution in overlapping tiles along the boundary. Only tiles
+  holding unknown-band pixels *and* both anchors are solved; the rest keep
+  the upsampled alpha. Tiles are feathered, because a hard tile edge in an
+  alpha channel is glaring once composited.
 
 ### Stage 2 facts you must not re-litigate
 

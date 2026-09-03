@@ -44,7 +44,10 @@
       "Fixed: band_width now scales with image resolution (was putting 41% of a 208x242 image in the unknown band).",
       "Fixed: CoreML execution provider removed from defaults (fails on this graph); CPU is the reliable path.",
       "Fixed: pymatting ichol preconditioner now starts at a non-zero shift, removing the PERFORMANCE WARNING.",
-      "35 tests passing, including the 2 integration tests that un-skip once weights exist."
+      "35 tests passing, including the 2 integration tests that un-skip once weights exist.",
+      "Stage 6b implemented (stages/refine.py): EdgeMode.REFINE re-solves the matte at native resolution in overlapping, feathered tiles along the boundary. Was previously a silent alias for MATTE.",
+      "CLI gained --refine-tile. 45 tests passing.",
+      "Measured on a 6.7 MP image: refine changes 3.3% of pixels vs matte, for +2s (11.8s -> 13.8s)."
     ],
     "queued": [
       "Step 3: browser build (onnxruntime-web + WebGPU, port stages 3-6 to TS)",
@@ -56,17 +59,17 @@
     "branch": "main (no commits yet \u2014 scaffold is uncommitted in the working tree)",
     "done": "Scaffold complete AND stage 2 verified through both backends. Full pipeline runs via the CLI on the default ONNX path: `bgremover in.jpg out.png` produces a real cutout.",
     "next_steps_in_order": [
-      "1. Commit the stage-2 work (uncommitted at time of writing).",
-      "2. Investigate the MPS regression: torch cold 26 s but WARM 116 s on repeated calls. Cold MPS is 2.2 s vs 12.7 s CPU, so MPS is right in principle \u2014 something degrades badly across calls. Until fixed, ONNX/CPU is the recommended path and is the default.",
-      "3. Populate eval/images/ with real photos matching eval/cases.toml, then `python eval/score.py --run` for baseline numbers. Do this BEFORE optimising anything.",
-      "4. Implement EdgeMode.REFINE \u2014 currently accepted by the CLI and enum but treated identically to MATTE.",
-      "5. Compare against rembg as the reference to beat: `rembg i -m birefnet-general -a in.jpg out.png`.",
-      "6. Step 3 of the build order: browser build (onnxruntime-web + WebGPU)."
+      "1. Populate eval/images/ with real photos matching eval/cases.toml, then `python eval/score.py --run` and `--score` for baseline numbers. Do this BEFORE optimising anything \u2014 it is build-order step 1 and still the biggest gap.",
+      "2. Compare against rembg as the reference to beat: `rembg i -m birefnet-general -a in.jpg out.png`.",
+      "3. Tune REFINE against the eval set: tile size, band width, and whether it should be the default above some megapixel threshold.",
+      "4. Step 3 of the build order: browser build (onnxruntime-web + WebGPU). See web/README.md.",
+      "5. Step 4: FastAPI container for the high-resolution path.",
+      "6. Step 5: stage 1 subject routing, with a manual override."
     ],
     "half_finished_that_will_break": [
-      "EdgeMode.REFINE is a no-op alias for MATTE. Stage-6 local refinement (CascadePSP or equivalent) is not implemented.",
       "models.py registers birefnet-hr and ben2 but only birefnet-general has been exported and run. BEN2 folds stages 3-4 into the model, so it needs a different pipeline path, not just a different weights file.",
-      "Mixing torch (MPS) and onnxruntime in ONE process can abort at teardown with 'recursive_mutex lock failed'. Benchmark the two backends in separate processes."
+      "Mixing torch (MPS) and onnxruntime in ONE process can abort at teardown with 'recursive_mutex lock failed'. Benchmark the two backends in separate processes.",
+      "REFINE has only been exercised on one real image and synthetic scenes. Its tile/band defaults are untuned guesses until the eval set exists."
     ]
   },
   "gotchas": [
@@ -91,7 +94,10 @@
     "The CoreML execution provider FAILS on this graph: it claims 873 of 2869 nodes, fragments them into 228 partitions, then errors at execution with 'Unable to compute the prediction using a neural network model'. It is excluded from the defaults; override with BGREMOVER_PROVIDERS if you want to retest.",
     "The ONNX export writes TWO files -- birefnet-general.onnx (10 MB) and birefnet-general.onnx.data (847 MB external data). They must travel together; ORT resolves the .data relative to the graph path.",
     "band_width in stage 3 is quoted in px at a 1024px REFERENCE_EDGE and rescaled to the actual image. An unscaled 12px band put 41% of a 208x242 image in the unknown region and stage 4 answered by softening every edge into a halo. Pass absolute_band=True to opt out.",
-    "macOS has no `timeout` command. Do not wrap long commands in it."
+    "macOS has no `timeout` command. Do not wrap long commands in it.",
+    "There is NO MPS regression \u2014 an earlier reading of 116 s for a warm call was measured while a concurrent process was running the 847 MB ONNX export. Re-measured clean, MPS settles at ~2 s/pass (3.80, 6.77, 3.80, 2.43, 2.07) with allocation flat at 0.91 GB. MPS is the fastest path; ONNX/CPU (4.4 s cold, 6.3 s warm) remains the DEFAULT because it needs no torch install and is what the browser build consumes.",
+    "pymatting's ichol preconditioner shift list must start at 1e-3, not 1e-4. At 1e-4 the matting Laplacian is often still not positive-definite enough and every solve prints a PERFORMANCE WARNING \u2014 six of them per REFINE run. Verified that raising the shift changes the answer by at most 1/255: the preconditioner affects convergence rate, not the solution.",
+    "Benchmark timings in this repo are unreliable if anything heavy is running concurrently. Two separate wrong conclusions were drawn from contended measurements."
   ],
   "open_questions_for_user": [
     "Package/CLI name: currently `bgremover` to match the folder. Renaming is one sed away if you want something more distinctive before the first release.",

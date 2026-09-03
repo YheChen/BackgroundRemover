@@ -83,7 +83,7 @@ difference between a toy and a product is visible immediately:
 | `naive` | 2 | free | hard edges, halos on hair |
 | `decontaminate` | 2, 5 | negligible | mask edges, but no colour fringe |
 | `matte` | 2–5 | slow | real hair, fur, lace **(default)** |
-| `refine` | 2–6 | slower | + local high-res refinement |
+| `refine` | 2–6 | slower | + boundary re-solved at native resolution |
 
 ```python
 from bgremover import load, remove_background, save, save_alpha

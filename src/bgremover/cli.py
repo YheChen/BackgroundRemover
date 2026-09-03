@@ -40,6 +40,10 @@ def build_parser() -> argparse.ArgumentParser:
             help="stage-3 unknown band width in px; the quality/speed dial (default: 12)",
         )
         p.add_argument(
+            "--refine-tile", type=int, default=512,
+            help="tile side for --edge refine, in px (default: 512)",
+        )
+        p.add_argument(
             "--bg", default=None,
             help="composite onto a solid colour, e.g. '#ffffff' (default: transparent)",
         )
@@ -165,6 +169,7 @@ def _run(image, args: argparse.Namespace, model: str):
         model=model,
         backend=args.backend,
         band_width=args.band,
+        refine_tile=args.refine_tile,
         keep_trimap=getattr(args, "trimap", None) is not None,
     )
 

@@ -15,6 +15,7 @@ from .stages import classify as classify_stage
 from .stages import composite as composite_stage
 from .stages import decontaminate as decontaminate_stage
 from .stages import matte as matte_stage
+from .stages import refine as refine_stage
 from .stages import segment as segment_stage
 from .stages import trimap as trimap_stage
 from .types import Cutout, EdgeMode, Subject
@@ -33,6 +34,7 @@ def remove_background(
     backend: str = "onnx",
     subject: Subject | str = Subject.AUTO,
     band_width: int = 12,
+    refine_tile: int = 512,
     keep_trimap: bool = False,
 ) -> Cutout:
     """Run the pipeline and return an unflattened Cutout.
@@ -44,6 +46,7 @@ def remove_background(
         backend: "onnx" (shipping) or "torch" (reference).
         subject: routing hint; AUTO defers to stage 1.
         band_width: stage-3 unknown band in px. The main quality/speed dial.
+        refine_tile: tile side for EdgeMode.REFINE, in px. Ignored otherwise.
         keep_trimap: attach the trimap to the result for debugging.
     """
     edge_mode = EdgeMode(edge_mode)
@@ -80,6 +83,14 @@ def remove_background(
         if working.shape[:2] == (full_h, full_w)
         else composite_stage.upsample_alpha(alpha_w, image)
     )
+
+    # --- stage 6b: local refinement at native resolution -------------------
+    # The upsample above is edge-aware but cannot invent detail the matte
+    # never had. REFINE re-solves the boundary at full resolution, in tiles.
+    if edge_mode is EdgeMode.REFINE:
+        alpha = refine_stage.refine(
+            image, alpha, tile=refine_tile, band_width=band_width
+        )
 
     # --- stage 5 -----------------------------------------------------------
     foreground = None

@@ -72,7 +72,7 @@ def solve(
     # PERFORMANCE WARNING and wastes the first factorisation attempt. Start at
     # a shift that actually works and the warning goes away with it.
     preconditioner = functools.partial(
-        ichol, discard_threshold=1e-4, shifts=[1e-4, 1e-3, 1e-2, 1e-1, 0.5, 1.0]
+        ichol, discard_threshold=1e-4, shifts=[1e-3, 1e-2, 1e-1, 0.5, 1.0]
     )
     alpha = estimate_alpha_cf(
         img, trimap_mod.to_pymatting(trimap), preconditioner=preconditioner
