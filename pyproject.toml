@@ -33,6 +33,10 @@ torch = [
   "huggingface-hub>=0.23",
   "einops>=0.7",
   "kornia>=0.7",
+  # torch>=2.9 routes torch.onnx.export through the dynamo exporter,
+  # which imports onnxscript. Without it the export dies with
+  # ModuleNotFoundError at the very end of a long trace.
+  "onnxscript>=0.1",
 ]
 dev = [
   "pytest>=8",

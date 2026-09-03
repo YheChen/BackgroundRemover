@@ -5,6 +5,7 @@ tests/test_pipeline_integration.py, which is skipped unless they are present.
 """
 
 import numpy as np
+import pytest
 
 from bgremover.stages import composite as composite_stage
 from bgremover.stages import decontaminate, matte
@@ -24,14 +25,28 @@ def test_matte_recovers_a_soft_edge(synthetic, prob):
 
 
 def test_matte_refuses_an_implausible_band(synthetic):
+    """A band covering most of the frame means stage 2 failed.
+
+    Needs a few definite-foreground pixels, or the earlier no-foreground
+    guard fires first and we never reach the band-fraction check.
+    """
+    from bgremover.types import TRIMAP_FG, TRIMAP_UNKNOWN
+
     image, _ = synthetic
-    everything_unknown = np.full(image.shape[:2], 128, np.uint8)
-    try:
-        matte.solve(image, everything_unknown, max_band_fraction=0.5)
-    except ValueError as exc:
-        assert "Stage 2" in str(exc)
-    else:
-        raise AssertionError("expected a ValueError for a 100% unknown band")
+    mostly_unknown = np.full(image.shape[:2], TRIMAP_UNKNOWN, np.uint8)
+    mostly_unknown[:4, :4] = TRIMAP_FG
+
+    with pytest.raises(ValueError, match="Stage 2"):
+        matte.solve(image, mostly_unknown, max_band_fraction=0.5)
+
+
+def test_matte_refuses_a_trimap_with_no_foreground(synthetic):
+    """Distinct failure from the band check, with its own message."""
+    from bgremover.types import TRIMAP_BG
+
+    image, _ = synthetic
+    with pytest.raises(ValueError, match="no foreground found"):
+        matte.solve(image, np.full(image.shape[:2], TRIMAP_BG, np.uint8))
 
 
 def test_decontamination_removes_the_green_fringe(synthetic):

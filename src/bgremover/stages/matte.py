@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import numpy as np
 
+from ..types import TRIMAP_FG
 from . import trimap as trimap_mod
 
 
@@ -38,11 +39,23 @@ def solve(
     Returns:
         (H, W) float32 alpha in [0, 1].
     """
-    from pymatting import estimate_alpha_cf
+    import functools
+
+    from pymatting import estimate_alpha_cf, ichol
 
     if image.shape[:2] != trimap.shape[:2]:
         raise ValueError(
             f"image {image.shape[:2]} and trimap {trimap.shape[:2]} must match"
+        )
+
+    # Stage 2 found nothing. pymatting would raise "Trimap did not contain
+    # foreground values", which reads like a bug in our trimap rather than
+    # what it actually is: no subject in the picture. Say the real thing.
+    if not np.any(trimap == TRIMAP_FG):
+        raise ValueError(
+            "no foreground found — stage 2 did not identify a subject in this "
+            "image, so there is nothing to matte. Inspect the coarse mask "
+            "(--edge naive) before touching matting parameters."
         )
 
     frac = trimap_mod.band_fraction(trimap)
@@ -53,7 +66,17 @@ def solve(
         )
 
     img = _as_float01(image)
-    alpha = estimate_alpha_cf(img, trimap_mod.to_pymatting(trimap))
+    # pymatting's default preconditioner starts at shift=0, where the matting
+    # Laplacian is routinely not positive-definite enough for an incomplete
+    # Cholesky. It recovers by retrying with larger shifts, but prints a
+    # PERFORMANCE WARNING and wastes the first factorisation attempt. Start at
+    # a shift that actually works and the warning goes away with it.
+    preconditioner = functools.partial(
+        ichol, discard_threshold=1e-4, shifts=[1e-4, 1e-3, 1e-2, 1e-1, 0.5, 1.0]
+    )
+    alpha = estimate_alpha_cf(
+        img, trimap_mod.to_pymatting(trimap), preconditioner=preconditioner
+    )
     return np.clip(alpha, 0.0, 1.0).astype(np.float32)
 
 

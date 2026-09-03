@@ -44,3 +44,37 @@ def test_rejects_bad_thresholds(prob):
 def test_rejects_non_2d_input():
     with pytest.raises(ValueError, match="2-D"):
         trimap_mod.derive(np.zeros((8, 8, 3), np.float32))
+
+
+def test_band_width_scales_with_image_size():
+    """A fixed pixel band is 12% of a thumbnail and a hairline on a 4K photo."""
+    small = np.zeros((208, 242), np.float32)
+    small[60:150, 70:170] = 1.0
+    large = np.zeros((2080, 2420), np.float32)
+    large[600:1500, 700:1700] = 1.0
+
+    small_band = trimap_mod.band_fraction(trimap_mod.derive(small, band_width=12))
+    large_band = trimap_mod.band_fraction(trimap_mod.derive(large, band_width=12))
+
+    # Same call, same geometry, 10x the pixels -> comparable band fraction.
+    assert abs(small_band - large_band) < 0.05, (small_band, large_band)
+    # And the regression this guards: an unscaled 12px band put 41% of a
+    # 208x242 image in the unknown region.
+    assert small_band < 0.20, small_band
+
+
+def test_absolute_band_opts_out_of_scaling():
+    small = np.zeros((208, 242), np.float32)
+    small[60:150, 70:170] = 1.0
+    scaled = trimap_mod.band_fraction(trimap_mod.derive(small, band_width=12))
+    literal = trimap_mod.band_fraction(
+        trimap_mod.derive(small, band_width=12, absolute_band=True)
+    )
+    assert literal > scaled
+
+
+def test_scaled_band_never_rounds_a_requested_band_to_zero():
+    """A tiny image must still get a 1px band, not silently lose stage 4."""
+    tiny = np.zeros((32, 32), np.float32)
+    tiny[10:22, 10:22] = 1.0
+    assert trimap_mod._scaled_band(12, tiny.shape, False) == 1

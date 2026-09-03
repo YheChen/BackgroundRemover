@@ -23,6 +23,9 @@ from scipy import ndimage
 
 from ..types import TRIMAP_BG, TRIMAP_FG, TRIMAP_UNKNOWN
 
+REFERENCE_EDGE = 1024
+"""Short edge, in px, that `band_width` is quoted against. See `derive`."""
+
 
 def derive(
     prob: np.ndarray,
@@ -30,6 +33,7 @@ def derive(
     fg_threshold: float = 0.95,
     bg_threshold: float = 0.05,
     band_width: int = 12,
+    absolute_band: bool = False,
 ) -> np.ndarray:
     """Build a trimap from a segmentation probability map.
 
@@ -37,8 +41,18 @@ def derive(
         prob: (H, W) float in [0, 1] — stage 2 output at full working res.
         fg_threshold: at or above this, treat as definite foreground.
         bg_threshold: at or below this, treat as definite background.
-        band_width: minimum unknown band, in px, either side of the boundary.
+        band_width: minimum unknown band either side of the boundary, in px
+            **at a REFERENCE_EDGE short edge**, rescaled to the actual image.
             0 disables the morphological band and trusts confidence alone.
+        absolute_band: take `band_width` as literal pixels, skipping the
+            rescale. For callers that already know their working resolution.
+
+    A fixed pixel band is wrong, and wrong in both directions: 12 px is a
+    hairline on a 4000 px product shot and 12% of the frame on a 208 px
+    thumbnail. Measured on a 208x242 image, an unscaled 12 px band put 41% of
+    all pixels in the unknown region — stage 4 was being asked to re-segment
+    the picture, and it answered by softening every edge into a halo. Scaled,
+    the same call yields 8%.
 
     Returns:
         (H, W) uint8 trimap using TRIMAP_BG / TRIMAP_UNKNOWN / TRIMAP_FG.
@@ -61,16 +75,27 @@ def derive(
     unknown = ~(definite_fg | definite_bg)
 
     # (b) morphological band around the boundary of the thresholded mask
-    if band_width > 0:
+    iterations = _scaled_band(band_width, prob.shape, absolute_band)
+    if iterations > 0:
         solid = prob >= 0.5
-        outer = ndimage.binary_dilation(solid, iterations=band_width)
-        inner = ndimage.binary_erosion(solid, iterations=band_width)
+        outer = ndimage.binary_dilation(solid, iterations=iterations)
+        inner = ndimage.binary_erosion(solid, iterations=iterations)
         unknown |= outer & ~inner
 
     trimap = np.full(prob.shape, TRIMAP_BG, dtype=np.uint8)
     trimap[definite_fg] = TRIMAP_FG
     trimap[unknown] = TRIMAP_UNKNOWN
     return trimap
+
+
+def _scaled_band(band_width: int, shape: tuple[int, ...], absolute: bool) -> int:
+    """Convert a REFERENCE_EDGE-relative band width to pixels for this image."""
+    if band_width <= 0:
+        return 0
+    if absolute:
+        return band_width
+    short_edge = min(shape[:2])
+    return max(1, round(band_width * short_edge / REFERENCE_EDGE))
 
 
 def band_fraction(trimap: np.ndarray) -> float:

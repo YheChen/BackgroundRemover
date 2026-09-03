@@ -7,8 +7,9 @@ actually ship it.
 remove.bg's API sunsets on **1 December 2026**, moving to Leonardo.Ai. This is a
 replacement.
 
-> **Status: scaffold.** Stages 3–6 are implemented and tested. Stage 2 needs
-> weights exported once (see [Setup](#setup)) and has not been executed yet.
+> **Status: stages 2–6 working.** Both stage-2 backends are verified and agree
+> (IoU 0.99969 between torch and ONNX on a real image). Export the weights once
+> (see [Setup](#setup)) and `bgremover in.jpg out.png` produces a real cutout.
 > Stage 1 is a deliberate no-op. See [Build order](#build-order).
 
 ## Why another one
@@ -37,7 +38,7 @@ suite enforces it.
 | # | Stage | What it does | Status |
 |---|-------|--------------|--------|
 | 1 | `classify` | Route by subject type (person / product / animal / …) | No-op by design |
-| 2 | `segment`  | Coarse foreground probability map, BiRefNet @1024px | Needs weights |
+| 2 | `segment`  | Coarse foreground probability map, BiRefNet @1024px | Verified |
 | 3 | `trimap`   | Derive the unknown band from model confidence | Implemented |
 | 4 | `matte`    | Solve continuous α in the band (closed-form) | Implemented |
 | 5 | `decontaminate` | Estimate uncontaminated foreground colour | Implemented |

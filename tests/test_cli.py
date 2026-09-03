@@ -35,17 +35,43 @@ def test_models_command_runs(capsys):
     assert "MIT" in out
 
 
-def test_missing_weights_reports_cleanly_not_as_a_traceback(tmp_path, capsys):
-    """A fresh clone has no weights. That is an expected state, not a crash."""
+def test_missing_weights_reports_cleanly_not_as_a_traceback(tmp_path, capsys, monkeypatch):
+    """A fresh clone has no weights. That is an expected state, not a crash.
+
+    Points BGREMOVER_WEIGHTS at an empty directory so the test holds whether
+    or not the developer running it has already exported a graph. The ORT
+    session is lru_cached, so that cache has to be cleared too.
+    """
     import numpy as np
     from PIL import Image
 
+    from bgremover.stages import segment
+
+    monkeypatch.setenv("BGREMOVER_WEIGHTS", str(tmp_path / "empty-weights"))
+    segment._onnx_session.cache_clear()
+
     src = tmp_path / "in.png"
-    Image.fromarray(np.zeros((32, 32, 3), np.uint8)).save(src)
+    Image.fromarray(np.full((32, 32, 3), 127, np.uint8)).save(src)
 
-    code = cli.main([str(src), str(tmp_path / "out.png")])
-    err = capsys.readouterr().err
+    try:
+        code = cli.main([str(src), str(tmp_path / "out.png")])
+        err = capsys.readouterr().err
+        assert code == 1
+        assert "export_onnx.py" in err, f"error should name the fix, got: {err!r}"
+        assert "Traceback" not in err
+    finally:
+        segment._onnx_session.cache_clear()
 
-    assert code == 1
-    assert "export_onnx.py" in err, "the error should name the fix"
-    assert "Traceback" not in err
+
+def test_no_subject_gives_a_clear_message_not_a_pymatting_internal(tmp_path, capsys):
+    """A flat image has no salient object. The error should say that."""
+    import numpy as np
+
+    from bgremover.stages import matte, trimap
+    from bgremover.types import TRIMAP_BG
+
+    flat = np.zeros((64, 64, 3), np.uint8)
+    empty = np.full((64, 64), TRIMAP_BG, np.uint8)
+    with pytest.raises(ValueError, match="no foreground found"):
+        matte.solve(flat, empty)
+    assert trimap.band_fraction(empty) == 0.0

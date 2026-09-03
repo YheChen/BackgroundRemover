@@ -14,14 +14,22 @@ Two backends:
          the [torch] extra, and is what you compare against when the ONNX
          export looks wrong.
 
-NOTE: neither backend has been executed yet — the scaffold does not download
-the ~900 MB of weights. Expect to fix the pre/post-processing details on
-first run, particularly the normalisation constants and output tensor layout.
+Verified against BiRefNet (ZhengPeng7/BiRefNet, transformers 5.16, torch 2.14):
+
+  - Preprocessing is 1024x1024 bilinear + ImageNet normalisation. Confirmed
+    against upstream's own inference snippet.
+  - The HF checkpoint ships **fp16 weights**. CPU conv2d refuses to mix fp16
+    bias with fp32 input, so the model is cast to fp32 unless it lands on
+    CUDA. This is the first thing that breaks if you touch _torch_model.
+  - `model(x)` returns a *list of one* tensor, shape (1, 1, 1024, 1024),
+    carrying raw **logits** (observed range roughly -28..19). Sigmoid is
+    required; it is not baked into the graph.
 """
 
 from __future__ import annotations
 
 import functools
+import os
 from typing import Literal
 
 import numpy as np
@@ -33,7 +41,7 @@ from ..types import Subject
 Backend = Literal["onnx", "torch"]
 
 # ImageNet normalisation — what BiRefNet's Swin backbone was trained with.
-# Verify against the upstream repo's inference notebook on first run.
+# Confirmed against upstream's own inference snippet; see the module docstring.
 _MEAN = np.array([0.485, 0.456, 0.406], dtype=np.float32)
 _STD = np.array([0.229, 0.224, 0.225], dtype=np.float32)
 
@@ -90,11 +98,28 @@ def _onnx_session(model: str):
             f"Export it once with:  python scripts/export_onnx.py --model {model}\n"
             f"or run with --backend torch to use the reference path."
         )
-    providers = [
-        p
-        for p in ("CoreMLExecutionProvider", "CUDAExecutionProvider", "CPUExecutionProvider")
-        if p in ort.get_available_providers()
-    ]
+    # CoreML is deliberately NOT in the default list. On this graph it claims
+    # 873 of 2869 nodes but fragments them into 228 partitions, then fails at
+    # execution ("Unable to compute the prediction using a neural network
+    # model"). Even working, 228 partition boundaries would erase any speedup.
+    # CUDA is fine. CPU is the reliable path, and slow: one 1024x1024 pass
+    # measured 7-13 s on a 10-core M-series laptop, run to run, with the
+    # variance dominated by scheduling rather than anything we control. Treat
+    # single-image CPU latency as "seconds, not sub-second" and do not quote a
+    # tighter figure than that without re-measuring.
+    # Override with BGREMOVER_PROVIDERS as a comma-separated list.
+    override = os.environ.get("BGREMOVER_PROVIDERS")
+    wanted = (
+        [p.strip() for p in override.split(",") if p.strip()]
+        if override
+        else ["CUDAExecutionProvider", "CPUExecutionProvider"]
+    )
+    providers = [p for p in wanted if p in ort.get_available_providers()]
+    if not providers:
+        raise RuntimeError(
+            f"none of {wanted} are available; onnxruntime offers "
+            f"{ort.get_available_providers()}"
+        )
     return ort.InferenceSession(str(path), providers=providers)
 
 
@@ -102,8 +127,9 @@ def _run_onnx(tensor: np.ndarray, model: str) -> np.ndarray:
     session = _onnx_session(model)
     name = session.get_inputs()[0].name
     outputs = session.run(None, {name: tensor})
-    # BiRefNet emits a list of multi-scale side outputs; the last is the
-    # finest. Verify this ordering when the export lands.
+    # scripts/export_onnx.py wraps the model so the graph has exactly one
+    # output — the finest prediction, pre-sigmoid. outputs[-1] is therefore
+    # that tensor, shaped (1, 1, size, size).
     return np.asarray(outputs[-1]).squeeze()
 
 
@@ -116,11 +142,14 @@ def _torch_model(hf_repo: str):
     model = AutoModelForImageSegmentation.from_pretrained(
         hf_repo, trust_remote_code=True
     )
-    model.eval()
-    if torch.backends.mps.is_available():
-        model.to("mps")
-    elif torch.cuda.is_available():
-        model.to("cuda").half()
+    # The HF weights are stored in float16. CPU conv2d refuses to mix a
+    # float32 input with half bias, so normalise to float32 and only go back
+    # to half on CUDA, where it is both supported and faster.
+    model = model.float().eval()
+    if torch.cuda.is_available():
+        model = model.to("cuda").half()
+    elif torch.backends.mps.is_available():
+        model = model.to("mps")
     return model
 
 
@@ -144,10 +173,15 @@ def _run_torch(tensor: np.ndarray, hf_repo: str | None) -> np.ndarray:
 
 
 def _sigmoid(x: np.ndarray) -> np.ndarray:
-    """Stable sigmoid. Skipped if the graph already applied it."""
-    if x.min() >= 0.0 and x.max() <= 1.0:
-        return x.astype(np.float32)
-    return (1.0 / (1.0 + np.exp(-np.clip(x, -60, 60)))).astype(np.float32)
+    """Stable sigmoid, applied unconditionally.
+
+    Both backends return raw logits: upstream's own inference is
+    `birefnet(x)[-1].sigmoid()`, and scripts/export_onnx.py exports that same
+    pre-sigmoid graph on purpose. Do not make this conditional on the value
+    range — a degenerate input whose logits happen to land inside [0, 1]
+    would silently skip activation and return a near-uniform 0.5 mask.
+    """
+    return (1.0 / (1.0 + np.exp(-np.clip(x, -60.0, 60.0)))).astype(np.float32)
 
 
 def _resize_map(prob: np.ndarray, size: tuple[int, int]) -> np.ndarray:

@@ -50,12 +50,27 @@ build's input. torch is reference-only. Don't move torch into
 
 ## Status
 
-- Stages 3, 4, 5, 6: implemented, unit-tested on a synthetic scene.
-- Stage 2: written but **never executed** — needs `scripts/export_onnx.py` run
-  once. Expect to fix normalisation constants and output tensor layout on
-  first run. `tests/test_pipeline_integration.py` skips until weights exist.
+- Stages 2–6: working and verified. The torch and ONNX backends agree to
+  IoU 0.99969 on a real image. `bgremover in.jpg out.png` produces a cutout.
 - Stage 1: intentional no-op. It is step 5 of the build order, not step 1 —
   routing between one engine is a coin flip.
+- `EdgeMode.REFINE` is still an alias for `MATTE`; stage-6 local refinement
+  is not implemented.
+
+### Stage 2 facts you must not re-litigate
+
+Each of these cost a debugging cycle. They are load-bearing:
+
+- HF weights are **fp16**; CPU conv2d needs `.float()`.
+- The model returns a **list of one** tensor of raw **logits**. Sigmoid is
+  applied by us, unconditionally, for both backends.
+- ONNX export needs **opset 22** — BiRefNet uses deformable convs and
+  `DeformConv` only enters the standard schema at 22.
+- **CoreML EP fails** on this graph (228 partitions, then an execution
+  error). CPU is the default and the reliable path.
+- Stage 3's `band_width` is quoted at a 1024px reference edge and **rescaled**
+  to the actual image. Unscaled, it put 41% of a small image in the unknown
+  band and haloed every edge.
 
 ## Conventions
 

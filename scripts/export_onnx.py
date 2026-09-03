@@ -27,7 +27,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from bgremover import models  # noqa: E402
 
-OPSET = 17
+# BiRefNet's ASPP blocks use deformable convolutions, and the ONNX standard
+# schema introduces DeformConv at opset 22. Export below that and the graph
+# loads fine in onnx but ORT rejects it at session creation with
+# "No Op registered for DeformConv with domain_version of 18". ORT itself does
+# implement the op -- the opset is the whole problem.
+OPSET = 22
 
 
 def main() -> int:
@@ -68,7 +73,29 @@ def main() -> int:
     model = AutoModelForImageSegmentation.from_pretrained(
         spec.hf_repo, trust_remote_code=True
     )
-    model.eval()
+    # Weights are float16 on the Hub; CPU conv2d will not mix a float32 input
+    # with a half bias, and the export traces on CPU.
+    model = model.float().eval()
+
+    # BiRefNet returns a LIST of multi-scale side outputs, finest last.
+    # Exporting that directly yields a multi-output graph whose ordering we
+    # would then have to trust at inference time. Wrap it so the graph has
+    # exactly one output: the finest prediction, still pre-sigmoid.
+    # segment.py applies sigmoid itself, for both backends.
+    class FinestOnly(torch.nn.Module):
+        def __init__(self, inner: torch.nn.Module) -> None:
+            super().__init__()
+            self.inner = inner
+
+        def forward(self, x: torch.Tensor) -> torch.Tensor:
+            out = self.inner(x)
+            while isinstance(out, (list, tuple)):
+                out = out[-1]
+            if hasattr(out, "logits"):
+                out = out.logits
+            return out
+
+    model = FinestOnly(model)
 
     dummy = torch.randn(1, 3, spec.input_size, spec.input_size)
     dynamic_axes = (
@@ -91,9 +118,21 @@ def main() -> int:
             do_constant_folding=True,
         )
 
-    size_mb = out.stat().st_size / 1e6
-    print(f"\nwrote {out}  ({size_mb:.0f} MB)")
-    print("verify with:  python -m pytest tests/test_pipeline_integration.py -v")
+    # The exporter puts weights in a sibling `<name>.onnx.data` rather than
+    # inlining them, so the .onnx file alone is ~10 MB of pure graph. Report
+    # both, or the number looks impossibly small.
+    parts = [out, *sorted(out.parent.glob(out.name + ".data*"))]
+    total_mb = sum(p.stat().st_size for p in parts) / 1e6
+    print()
+    for p in parts:
+        print(f"wrote {p.name:<34} {p.stat().st_size / 1e6:>8.0f} MB")
+    print(f"{'total':<40} {total_mb:>8.0f} MB")
+    if len(parts) > 1:
+        print(
+            "\nnote: the .onnx and .onnx.data files must travel together — "
+            "onnxruntime resolves the external data relative to the graph."
+        )
+    print("\nverify with:  python -m pytest tests/test_pipeline_integration.py -v")
     return 0
 
 

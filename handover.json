@@ -3,19 +3,17 @@
     "name": "BackgroundRemover",
     "what": "Free, open-source background remover with the full six-stage cutout pipeline (not just a coarse mask), built on permissively licensed weights only. Replacement for remove.bg, whose API sunsets 2026-12-01 and moves to Leonardo.Ai.",
     "path": "/Users/yanzhenchen/Desktop/GitHub Projects/BackgroundRemover",
-    "remote": "none yet — git initialised on branch main, no commits pushed",
+    "remote": "none yet \u2014 git initialised on branch main, no commits pushed",
     "git_identity": "Yanzhen Chen <yanzhenchen123@gmail.com>",
     "package": "bgremover (src layout), CLI entry point `bgremover`",
     "research_doc": "https://claude.ai/code/artifact/d826a42d-22e6-41da-b4b8-2d49d38fc9b1"
   },
-
   "workflow": {
     "branching": "main is the default branch; branch before committing feature work",
     "commit_trailers": "Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>",
     "verified_means": "`.venv/bin/python -m pytest -q` green AND `.venv/bin/ruff check .` clean. Stage 2 additionally requires a real image through the CLI, since unit tests cannot cover it without weights.",
     "spelling": "British in prose and identifiers (licence, colour, normalised)"
   },
-
   "commands": {
     "setup": "uv venv && uv pip install -e \".[dev]\"",
     "test": ".venv/bin/python -m pytest -q",
@@ -25,22 +23,28 @@
     "cli": "bgremover in.jpg out.png --edge matte",
     "eval": "python eval/score.py --run  then  python eval/score.py --score"
   },
-
   "status": {
     "complete": [
       "Repo scaffold: MIT LICENSE, NOTICE (authoritative model-licence record), .gitignore, README, docs/pipeline.md, CLAUDE.md",
-      "pyproject.toml — light runtime deps (numpy/pillow/onnxruntime/pymatting/scipy), torch behind an optional extra",
-      "src/bgremover/types.py — Cutout (unflattened planes), EdgeMode ladder, Subject, trimap sentinels",
-      "src/bgremover/models.py — registry with a licence gate that refuses non-permissive weights at construction",
-      "Stage 3 trimap.py — confidence-driven unknown band unioned with a morphological minimum band",
-      "Stage 4 matte.py — pymatting closed-form solver with a band-fraction sanity guard",
-      "Stage 5 decontaminate.py — Fast Multi-Level Foreground Estimation (Germer et al.)",
-      "Stage 6 composite.py — guided-filter alpha upsample, composite, bounding box, crop",
+      "pyproject.toml \u2014 light runtime deps (numpy/pillow/onnxruntime/pymatting/scipy), torch behind an optional extra",
+      "src/bgremover/types.py \u2014 Cutout (unflattened planes), EdgeMode ladder, Subject, trimap sentinels",
+      "src/bgremover/models.py \u2014 registry with a licence gate that refuses non-permissive weights at construction",
+      "Stage 3 trimap.py \u2014 confidence-driven unknown band unioned with a morphological minimum band",
+      "Stage 4 matte.py \u2014 pymatting closed-form solver with a band-fraction sanity guard",
+      "Stage 5 decontaminate.py \u2014 Fast Multi-Level Foreground Estimation (Germer et al.)",
+      "Stage 6 composite.py \u2014 guided-filter alpha upsample, composite, bounding box, crop",
       "pipeline.py orchestrator with WORKING_PIXELS downscale + stage-6 reprojection",
-      "cli.py — single/batch/models subcommands, --edge ladder, --matte, --bg, --crop",
+      "cli.py \u2014 single/batch/models subcommands, --edge ladder, --matte, --bg, --crop",
       "27 unit tests passing, 2 integration tests correctly skipped",
       "eval/ harness: 20-case hard-image manifest (cases.toml), score.py run/score/report, mid-grey flatten",
-      "scripts/export_onnx.py, web/README.md (step 3 plan)"
+      "scripts/export_onnx.py, web/README.md (step 3 plan)",
+      "Stage 2 VERIFIED working via the torch backend. On a synthetic 700x700 salient-object test the mask bbox matched the drawn shape exactly (x[230:470] y[150:600]), 13.7% coverage, no inversion.",
+      "Stage 2 VERIFIED end-to-end. torch backend and ONNX backend agree: IoU@0.5 = 0.99969, mean abs diff 0.0018 on a real image.",
+      "ONNX export working at opset 22 (weights/birefnet-general.onnx + .onnx.data, 898 MB total, gitignored).",
+      "Fixed: band_width now scales with image resolution (was putting 41% of a 208x242 image in the unknown band).",
+      "Fixed: CoreML execution provider removed from defaults (fails on this graph); CPU is the reliable path.",
+      "Fixed: pymatting ichol preconditioner now starts at a non-zero shift, removing the PERFORMANCE WARNING.",
+      "35 tests passing, including the 2 integration tests that un-skip once weights exist."
     ],
     "queued": [
       "Step 3: browser build (onnxruntime-web + WebGPU, port stages 3-6 to TS)",
@@ -48,42 +52,52 @@
       "Step 5: stage 1 subject routing, with a manual override"
     ]
   },
-
   "in_progress": {
-    "branch": "main (no commits yet — scaffold is uncommitted in the working tree)",
-    "done": "Everything in status.complete. Test suite green.",
+    "branch": "main (no commits yet \u2014 scaffold is uncommitted in the working tree)",
+    "done": "Scaffold complete AND stage 2 verified through both backends. Full pipeline runs via the CLI on the default ONNX path: `bgremover in.jpg out.png` produces a real cutout.",
     "next_steps_in_order": [
-      "1. Make the first commit. Nothing is committed yet.",
-      "2. Run `uv pip install -e \".[torch]\"` then `python scripts/export_onnx.py --model birefnet-general`. This is the first real execution of stage 2 and WILL need fixes.",
-      "3. Fix stage 2 against reality. Three known-suspect spots in src/bgremover/stages/segment.py: (a) _MEAN/_STD ImageNet constants — verify against BiRefNet's own inference notebook; (b) _run_onnx takes outputs[-1] assuming the finest multi-scale side output is last — verify the ordering; (c) _sigmoid auto-detects whether the graph already applied it, which is a heuristic. Symptoms to expect: inverted mask, blank mask, or wrong scale.",
-      "4. Once stage 2 runs, `python -m pytest tests/test_pipeline_integration.py -v` should un-skip and pass.",
-      "5. Populate eval/images/ with real photos matching eval/cases.toml, then run the eval to get the baseline numbers. Do this BEFORE any optimisation.",
-      "6. Compare against rembg as the reference implementation to beat: `rembg i -m birefnet-general -a in.jpg out.png`."
+      "1. Commit the stage-2 work (uncommitted at time of writing).",
+      "2. Investigate the MPS regression: torch cold 26 s but WARM 116 s on repeated calls. Cold MPS is 2.2 s vs 12.7 s CPU, so MPS is right in principle \u2014 something degrades badly across calls. Until fixed, ONNX/CPU is the recommended path and is the default.",
+      "3. Populate eval/images/ with real photos matching eval/cases.toml, then `python eval/score.py --run` for baseline numbers. Do this BEFORE optimising anything.",
+      "4. Implement EdgeMode.REFINE \u2014 currently accepted by the CLI and enum but treated identically to MATTE.",
+      "5. Compare against rembg as the reference to beat: `rembg i -m birefnet-general -a in.jpg out.png`.",
+      "6. Step 3 of the build order: browser build (onnxruntime-web + WebGPU)."
     ],
     "half_finished_that_will_break": [
-      "src/bgremover/stages/segment.py has never been executed. Both backends are written from the documented APIs, not from a successful run.",
-      "EdgeMode.REFINE is accepted by the CLI and the enum but pipeline.py treats it identically to MATTE — the stage-6 local refinement pass (CascadePSP or equivalent) is not implemented yet.",
-      "models.py registers birefnet-hr and ben2, but only birefnet-general has been reasoned through. BEN2 folds stages 3-4 into the model, so it will need a different pipeline path, not just a different weights file."
+      "EdgeMode.REFINE is a no-op alias for MATTE. Stage-6 local refinement (CascadePSP or equivalent) is not implemented.",
+      "models.py registers birefnet-hr and ben2 but only birefnet-general has been exported and run. BEN2 folds stages 3-4 into the model, so it needs a different pipeline path, not just a different weights file.",
+      "Mixing torch (MPS) and onnxruntime in ONE process can abort at teardown with 'recursive_mutex lock failed'. Benchmark the two backends in separate processes."
     ]
   },
-
   "gotchas": [
+    "BiRefNet's HF checkpoint is fp16. Cast to fp32 for any CPU work (conv2d will not mix fp16 bias with fp32 input). Only go back to half on CUDA. This is the first thing that breaks if you touch _torch_model.",
+    "model(x) returns a LIST of length 1 holding a (1,1,1024,1024) tensor of raw LOGITS. Sigmoid is required and is not baked into the graph. export_onnx.py wraps this in FinestOnly so the ONNX graph is single-output.",
+    "torch>=2.9 routes torch.onnx.export through the dynamo exporter, which imports onnxscript. Without it the export fails with ModuleNotFoundError at the very END of a long trace -- easy to mistake for a model problem.",
+    "band_width in stage 3 is quoted against a REFERENCE_EDGE of 1024px and rescaled. A fixed pixel band is wrong in both directions: unscaled 12px on a 208x242 image put 41% of pixels in the unknown band, and stage 4 answered by softening every edge into a halo.",
+    "pymatting's default ichol preconditioner starts at shift=0, where the matting Laplacian is often not positive-definite enough; it recovers but prints PERFORMANCE WARNING and wastes a factorisation. matte.solve passes an explicit shift ladder starting at 1e-4.",
     "LICENCE IS THE PROJECT'S DEFINING CONSTRAINT. BRIA RMBG-2.0/1.4 is CC BY-NC 4.0 and is the default model in rembg and several other wrappers. Adding it would make every downstream user non-compliant. models.py refuses it at construction; tests/test_registry.py asserts the refusal. Do not weaken this.",
     "BiRefNet's repo licence is MIT but SOME variants were fine-tuned on private data and are non-commercial. Read the individual HF model card, not the repo licence, before registering a variant.",
     "System python is 3.14.4; uv created the venv on 3.12.12. All deps (including torch 2.14 and onnxruntime 1.29) resolve on both, so requires-python is >=3.10 with no interpreter pin.",
-    "The first `uv pip install -e .` failed only because README.md did not exist yet — pyproject references it via `readme`. Order matters if the tree is ever rebuilt from scratch.",
+    "The first `uv pip install -e .` failed only because README.md did not exist yet \u2014 pyproject references it via `readme`. Order matters if the tree is ever rebuilt from scratch.",
     "pymatting signatures verified against 1.1.15: estimate_alpha_cf(image, trimap) and estimate_foreground_ml(image, alpha, ..., return_background=False). Image must be float64 RGB in [0,1]; trimap float64 with 0=bg, 1=fg, anything else unknown.",
     "Do not let EdgeMode.NAIVE become the default. It is stage 2 only and produces the hard halo-ed edges that make free tools look free.",
     "Eval scoring is manual on purpose. IoU barely moves when a 3px hair fringe is wrong, which is exactly what users notice, so it is actively misleading here.",
     "eval/out is flattened onto mid-grey deliberately: white backgrounds hide white fringing, black hides dark fringing.",
-    "Stage 3's band_width is the main quality/speed dial in the whole pipeline — only the unknown band goes to the expensive stage 4.",
-    "BiRefNet-HR is known to over-correct on some inputs. Newer is not automatically better; score it."
+    "Stage 3's band_width is the main quality/speed dial in the whole pipeline \u2014 only the unknown band goes to the expensive stage 4.",
+    "BiRefNet-HR is known to over-correct on some inputs. Newer is not automatically better; score it.",
+    "BiRefNet's HF checkpoint ships FP16 weights. CPU conv2d refuses to mix a half bias with a float32 input, so _torch_model casts to .float() and only returns to half on CUDA. This is the first thing that breaks if you touch that function.",
+    "BiRefNet returns a LIST of one tensor (1,1,1024,1024) carrying raw LOGITS, observed range about -28..19. Sigmoid is required and is NOT baked into the graph. segment.py applies it unconditionally for both backends -- do not make that conditional on value range.",
+    "ONNX export REQUIRES opset 22. BiRefNet's ASPP blocks use deformable convolutions and the ONNX standard schema only introduces DeformConv at 22. Below that, export succeeds but ORT rejects the graph at session creation: 'No Op registered for DeformConv with domain_version of 18'.",
+    "The CoreML execution provider FAILS on this graph: it claims 873 of 2869 nodes, fragments them into 228 partitions, then errors at execution with 'Unable to compute the prediction using a neural network model'. It is excluded from the defaults; override with BGREMOVER_PROVIDERS if you want to retest.",
+    "The ONNX export writes TWO files -- birefnet-general.onnx (10 MB) and birefnet-general.onnx.data (847 MB external data). They must travel together; ORT resolves the .data relative to the graph path.",
+    "band_width in stage 3 is quoted in px at a 1024px REFERENCE_EDGE and rescaled to the actual image. An unscaled 12px band put 41% of a 208x242 image in the unknown region and stage 4 answered by softening every edge into a halo. Pass absolute_band=True to opt out.",
+    "macOS has no `timeout` command. Do not wrap long commands in it."
   ],
-
   "open_questions_for_user": [
     "Package/CLI name: currently `bgremover` to match the folder. Renaming is one sed away if you want something more distinctive before the first release.",
-    "GitHub remote does not exist yet — repo name, and public or private to start?",
+    "GitHub remote does not exist yet \u2014 repo name, and public or private to start?",
     "Contact shadow synthesis (remove.bg's shadow_type/shadow_opacity) is not in the plan. Worth having?",
-    "Should the graphic/flat-logo case bypass matting entirely? Matting softens hard vector edges, which is wrong for that subject — this is an argument for stage 1 landing earlier than step 5."
+    "Should the graphic/flat-logo case bypass matting entirely? Matting softens hard vector edges, which is wrong for that subject \u2014 this is an argument for stage 1 landing earlier than step 5.",
+    "Another writer appears to be editing this working tree concurrently (segment.py, export_onnx.py, matte.py and pyproject.toml all gained correct fixes mid-session that this session did not author). Worth confirming no second agent/session is running against this repo before doing more work here."
   ]
 }
