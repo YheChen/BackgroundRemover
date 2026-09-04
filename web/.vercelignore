@@ -1,0 +1,19 @@
+# Vercel's CLI does NOT read .gitignore, so these must be listed again or it
+# tries to upload them and dies on the 100 MB per-file limit.
+
+node_modules
+dist
+
+# The model is hosted off-origin and injected via VITE_MODEL_URL. At 210 MB it
+# exceeds Vercel's per-file upload cap outright, and even if it fit, the
+# Hobby tier's 100 GB/month would cap the site near 475 cold visitors.
+public/models
+
+# The onnxruntime runtime files are regenerated during the build by
+# `npm run copy:ort`, wired to prebuild. No need to ship 78 MB of them.
+public/ort
+
+# Local only
+.env.local
+fixtures
+scripts

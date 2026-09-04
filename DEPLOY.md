@@ -61,10 +61,10 @@ onnx.save_model(m, 'birefnet-lite-web-merged.onnx', save_as_external_data=False)
 ### 2. Host the model
 
 ```bash
-pip install huggingface_hub
-huggingface-cli login
-huggingface-cli upload <you>/bgremover-onnx \
-  birefnet-lite-web-merged.onnx birefnet-lite-web.onnx
+.venv/bin/hf auth login
+.venv/bin/hf upload <you>/bgremover-onnx \
+  weights/birefnet-lite-web-merged.onnx birefnet-lite-web.onnx \
+  --repo-type=model
 ```
 
 Mark the repo public. Note in its card that the weights derive from
@@ -72,6 +72,17 @@ Mark the repo public. Note in its card that the weights derive from
 [NOTICE](NOTICE).
 
 ### 3. Deploy the app
+
+**`.vercelignore` is mandatory.** The Vercel CLI does not read `.gitignore`,
+so without it the CLI tries to upload the 210 MB model plus 78 MB of ORT
+runtime — 402 MB in total — and dies on the per-file cap:
+
+```
+DeploymentError: File size limit exceeded (100 MB)
+```
+
+With [`web/.vercelignore`](web/.vercelignore) the upload is 0.3 MB, and the
+ORT runtime is regenerated on Vercel by the `prebuild` hook.
 
 Point Vercel at the repo with **root directory `web`**. It picks up
 [`web/vercel.json`](web/vercel.json) automatically. Set one environment
@@ -86,6 +97,19 @@ Or from the CLI:
 ```bash
 cd web && npx vercel --prod
 ```
+
+### Deployment Protection is on by default
+
+The generated `*-yhechens-projects.vercel.app` URL 302s to Vercel SSO. The
+short alias — `https://<project>-<hash>.vercel.app` — is public. If you want
+the team URL public too, turn off Settings → Deployment Protection → Vercel
+Authentication.
+
+### `VITE_MODEL_URL` is a build-time variable
+
+Vite inlines `import.meta.env` at build time, so setting the env var in the
+Vercel dashboard does **not** affect the already-built site. Set it, then
+redeploy.
 
 ## The headers matter
 
@@ -141,3 +165,14 @@ Where the T14 genuinely helps:
   which is exactly why `VITE_MODEL_URL` exists.
 - **Cold start is the whole first impression.** 210 MB, reported as real byte
   progress and then stored via the Cache API so a second visit is instant.
+
+
+## Current deployment
+
+| | |
+|---|---|
+| Live | <https://backgroundremover-theta.vercel.app> |
+| Project | `yhechens-projects/backgroundremover` |
+| Status | App deployed and serving. **Model not yet hosted**, so the page loads and then reports `model fetch failed: 404`. |
+
+Remaining: upload the model (step 2), set `VITE_MODEL_URL`, redeploy.
