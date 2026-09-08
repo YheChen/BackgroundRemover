@@ -33,3 +33,4 @@ web/dist/
 web/public/models/
 web/.vite/
 web/public/ort/
+dist-model/

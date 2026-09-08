@@ -3,10 +3,12 @@
     "name": "BackgroundRemover",
     "what": "Free, open-source background remover with the full six-stage cutout pipeline (not just a coarse mask), built on permissively licensed weights only. Replacement for remove.bg, whose API sunsets 2026-12-01 and moves to Leonardo.Ai.",
     "path": "/Users/yanzhenchen/Desktop/GitHub Projects/BackgroundRemover",
-    "remote": "none yet \u2014 git initialised on branch main, no commits pushed",
+    "remote": "https://github.com/YheChen/BackgroundRemover.git (public, in sync)",
     "git_identity": "Yanzhen Chen <yanzhenchen123@gmail.com>",
     "package": "bgremover (src layout), CLI entry point `bgremover`",
-    "research_doc": "https://claude.ai/code/artifact/d826a42d-22e6-41da-b4b8-2d49d38fc9b1"
+    "research_doc": "https://claude.ai/code/artifact/d826a42d-22e6-41da-b4b8-2d49d38fc9b1",
+    "live_url": "https://backgroundremover-theta.vercel.app",
+    "vercel_project": "yhechens-projects/backgroundremover"
   },
   "workflow": {
     "branching": "main is the default branch; branch before committing feature work",
@@ -65,14 +67,14 @@
   },
   "in_progress": {
     "branch": "main (no commits yet \u2014 scaffold is uncommitted in the working tree)",
-    "done": "Stages 2-6 in Python (both backends), stage 6b REFINE, and the browser build are all working and verified. The Python suite is 45 green; the browser solver passes its numeric fixture.",
+    "done": "Python pipeline (stages 2-6 + 6b), browser build, and Vercel deployment are all done. App is LIVE at https://backgroundremover-theta.vercel.app with correct COOP/COEP headers. It loads and then reports 'model fetch failed: 404' because the weights are not hosted yet -- that is the single remaining blocker and it needs the owner's Hugging Face credentials.",
     "next_steps_in_order": [
-      "1. Deploy: export the model, upload to a public HF repo, set VITE_MODEL_URL, point Vercel at the repo with root directory 'web'. Steps are in DEPLOY.md.",
-      "2. STILL THE BIGGEST GAP: populate eval/images/ with real photos matching eval/cases.toml, then `python eval/score.py --run` and `--score`.",
-      "3. Move the pipeline into a Web Worker. It currently runs on the main thread and freezes the tab for the whole run -- tolerable at 1.9s, not at 12 MP.",
-      "4. Retry fp16 to halve the cold start. int8 is a dead end for WebGPU (see gotchas).",
-      "5. Investigate the browser/Python soft-pixel gap (0.045 vs 0.029) once the eval set exists.",
-      "6. Port stage 6b (REFINE) to TypeScript. Step 4: FastAPI container. Step 5: stage 1 routing."
+      "1. THE ONLY BLOCKER: host the model. `.venv/bin/hf auth login` with a WRITE token, then `.venv/bin/hf upload YheChen/bgremover-onnx dist-model . --repo-type model --no-private`. dist-model/ already contains the merged 210 MB graph and a licence-correct model card.",
+      "2. `cd web && vercel env add VITE_MODEL_URL production` with the HF resolve URL, then `vercel --prod --yes`. The redeploy is REQUIRED -- Vite inlines import.meta.env at build time.",
+      "3. Verify the live site end-to-end with a real image.",
+      "4. Move the pipeline into a Web Worker. It runs on the main thread and freezes the tab for the whole run.",
+      "5. Populate eval/images/ and run the eval harness for baseline numbers.",
+      "6. Retry fp16 to halve the 210 MB cold start (int8 is a dead end on WebGPU -- see gotchas)."
     ],
     "half_finished_that_will_break": [
       "models.py registers ben2 but it has never been exported or run, and BEN2 folds stages 3-4 into the model so it needs its own pipeline path, not just a different weights file. birefnet-hr is registered but unexported too.",
@@ -114,7 +116,11 @@
     "DO NOT ship an int8-quantised model to the browser. It is 159 MB vs 210, faster, and matches fp32 to IoU 0.9948 -- but only on native CPU. On onnxruntime-web's WebGPU path it returns a near-all-foreground mask: measured fg=0.974 against an expected 0.443, and 14.5s instead of 1.9s. Caught only by running it in a real browser. fp32 ships.",
     "fp16 conversion via onnxconverter_common yields a malformed graph ('Type Error: Type (tensor(float16)) of output arg') when GridSample is block-listed. It would halve the 210 MB download, so it is worth another attempt, but it is not a one-liner.",
     "COEP must be 'credentialless', not 'require-corp'. require-corp blocks the cross-origin model fetch; dropping COEP entirely loses SharedArrayBuffer and so single-threads the WASM fallback. credentialless is the only value that satisfies both. Dev and prod headers are kept identical so this cannot regress silently.",
-    "Vercel Hobby: 100 MB max per uploaded file and 100 GB/month bandwidth. The 210 MB model cannot go there, and even a 100 MB one would cap the site near a thousand cold visitors a month."
+    "Vercel Hobby: 100 MB max per uploaded file and 100 GB/month bandwidth. The 210 MB model cannot go there, and even a 100 MB one would cap the site near a thousand cold visitors a month.",
+    "MODEL HOSTING, options evaluated 2026-09-08. GitHub Releases is RULED OUT: release-assets.githubusercontent.com sends NO access-control-allow-origin header at all, even when the request carries an Origin, so a browser fetch() is blocked by CORS. Verified against a known-public asset. Do not retry it. jsDelivr is also out (20 MB per-file cap vs a 210 MB model).",
+    "Vercel Blob is viable in principle but needs a store provisioned in the dashboard first: `vercel blob list` errors with 'VERCEL_OIDC_TOKEN and BLOB_STORE_ID must both be set'. CLI auth alone is not enough.",
+    "Hugging Face remains the recommended host: free, CDN-backed, no bandwidth cap on public repos, and it does send CORS headers. Needs `hf auth login` with a WRITE-scoped token -- a Read token authenticates fine and then fails at upload.",
+    "Zero-account fallback if HF is ever unavailable: split the model into sub-100MB parts and serve same-origin from Vercel, sidestepping CORS entirely. Costs Vercel bandwidth -- 210 MB per cold visitor against Hobby's 100 GB/month is ~475 visitors, and exceeding the cap PAUSES deployments."
   ],
   "open_questions_for_user": [
     "Package/CLI name: currently `bgremover` to match the folder. Renaming is one sed away if you want something more distinctive before the first release.",
