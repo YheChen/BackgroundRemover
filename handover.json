@@ -8,7 +8,8 @@
     "package": "bgremover (src layout), CLI entry point `bgremover`",
     "research_doc": "https://claude.ai/code/artifact/d826a42d-22e6-41da-b4b8-2d49d38fc9b1",
     "live_url": "https://backgroundremover-theta.vercel.app",
-    "vercel_project": "yhechens-projects/backgroundremover"
+    "vercel_project": "yhechens-projects/backgroundremover",
+    "model_repo": "https://huggingface.co/YheChen/bgremover-onnx (public, MIT)"
   },
   "workflow": {
     "branching": "main is the default branch; branch before committing feature work",
@@ -58,7 +59,10 @@
       "Deployment path settled and documented in DEPLOY.md: static app on Vercel, 210 MB model on Hugging Face, joined by VITE_MODEL_URL.",
       "web/vercel.json with COOP same-origin + COEP credentialless. Verified crossOriginIsolated === true while still allowing an off-origin model fetch.",
       "Model is now cached via the Cache API (bgremover-model-v1), not the HTTP cache, so a second visit is instant.",
-      "Fixed: ort.env.wasm.numThreads now checks crossOriginIsolated. Requesting threads without SharedArrayBuffer makes ORT fail to initialise rather than degrade."
+      "Fixed: ort.env.wasm.numThreads now checks crossOriginIsolated. Requesting threads without SharedArrayBuffer makes ORT fail to initialise rather than degrade.",
+      "SHIPPED AND WORKING END TO END. Model uploaded to https://huggingface.co/YheChen/bgremover-onnx (public, 210,363,856 bytes, byte-identical to local). VITE_MODEL_URL set on Vercel and redeployed; the HF URL is verified inlined in the shipped bundle.",
+      "Verified live on https://backgroundremover-theta.vercel.app with a 2.6 MP real photo (cat on snow, fur against low-contrast background) fetched cross-origin: WebGPU, clean cutout, fg=0.273, soft=0.029.",
+      "Fixed a self-inflicted bug: `await cache.put(url, res.clone())` drained the whole 210 MB before resolving, so the progress bar never moved. Body is now streamed and reported first, cached after."
     ],
     "queued": [
       "Step 4: FastAPI container for the high-resolution path.",
@@ -67,14 +71,13 @@
   },
   "in_progress": {
     "branch": "main (no commits yet \u2014 scaffold is uncommitted in the working tree)",
-    "done": "Python pipeline (stages 2-6 + 6b), browser build, and Vercel deployment are all done. App is LIVE at https://backgroundremover-theta.vercel.app with correct COOP/COEP headers. It loads and then reports 'model fetch failed: 404' because the weights are not hosted yet -- that is the single remaining blocker and it needs the owner's Hugging Face credentials.",
+    "done": "The project is deployed and functioning end to end: Python pipeline, browser build, Vercel hosting, Hugging Face model hosting. A real photo produces a correct cutout on the live site.",
     "next_steps_in_order": [
-      "1. THE ONLY BLOCKER: host the model. `.venv/bin/hf auth login` with a WRITE token, then `.venv/bin/hf upload YheChen/bgremover-onnx dist-model . --repo-type model --no-private`. dist-model/ already contains the merged 210 MB graph and a licence-correct model card.",
-      "2. `cd web && vercel env add VITE_MODEL_URL production` with the HF resolve URL, then `vercel --prod --yes`. The redeploy is REQUIRED -- Vite inlines import.meta.env at build time.",
-      "3. Verify the live site end-to-end with a real image.",
-      "4. Move the pipeline into a Web Worker. It runs on the main thread and freezes the tab for the whole run.",
-      "5. Populate eval/images/ and run the eval harness for baseline numbers.",
-      "6. Retry fp16 to halve the 210 MB cold start (int8 is a dead end on WebGPU -- see gotchas)."
+      "1. PERFORMANCE IS NOW THE TOP ISSUE. A 2.6 MP photo takes 62s on the live site and the whole time the tab is frozen, because the pipeline runs on the main thread. Move it into a Web Worker; that fixes the freeze but not the wall time.",
+      "2. Profile where those 62s go. Suspect stage 4: the CG solver is O(band pixels) and a 2.6 MP image has a far larger band than the 208x242 test. Consider capping WORKING_PIXELS lower, or tightening the default band.",
+      "3. Populate eval/images/ and run the eval harness. Still never done; every quality knob is untuned.",
+      "4. Retry fp16 to halve the 210 MB cold start (int8 is a dead end on WebGPU -- see gotchas).",
+      "5. Port stage 6b (REFINE) to TypeScript. Step 4: FastAPI container. Step 5: stage 1 routing."
     ],
     "half_finished_that_will_break": [
       "models.py registers ben2 but it has never been exported or run, and BEN2 folds stages 3-4 into the model so it needs its own pipeline path, not just a different weights file. birefnet-hr is registered but unexported too.",
@@ -120,7 +123,9 @@
     "MODEL HOSTING, options evaluated 2026-09-08. GitHub Releases is RULED OUT: release-assets.githubusercontent.com sends NO access-control-allow-origin header at all, even when the request carries an Origin, so a browser fetch() is blocked by CORS. Verified against a known-public asset. Do not retry it. jsDelivr is also out (20 MB per-file cap vs a 210 MB model).",
     "Vercel Blob is viable in principle but needs a store provisioned in the dashboard first: `vercel blob list` errors with 'VERCEL_OIDC_TOKEN and BLOB_STORE_ID must both be set'. CLI auth alone is not enough.",
     "Hugging Face remains the recommended host: free, CDN-backed, no bandwidth cap on public repos, and it does send CORS headers. Needs `hf auth login` with a WRITE-scoped token -- a Read token authenticates fine and then fails at upload.",
-    "Zero-account fallback if HF is ever unavailable: split the model into sub-100MB parts and serve same-origin from Vercel, sidestepping CORS entirely. Costs Vercel bandwidth -- 210 MB per cold visitor against Hobby's 100 GB/month is ~475 visitors, and exceeding the cap PAUSES deployments."
+    "Zero-account fallback if HF is ever unavailable: split the model into sub-100MB parts and serve same-origin from Vercel, sidestepping CORS entirely. Costs Vercel bandwidth -- 210 MB per cold visitor against Hobby's 100 GB/month is ~475 visitors, and exceeding the cap PAUSES deployments.",
+    "Never `await cache.put(url, res.clone())` before reading a large response body: put() drains the full stream before it resolves, so any progress reporting downstream is dead on arrival. Stream and report first, cache the assembled bytes after. This only reproduced against the real remote URL -- a same-origin local model was fast enough to hide it.",
+    "Live perf datapoint: 2.6 MP photo = 62s on WebGPU on the deployed site, main thread blocked throughout. The 1.9s figure from local testing was a 208x242 image and is not representative."
   ],
   "open_questions_for_user": [
     "Package/CLI name: currently `bgremover` to match the folder. Renaming is one sed away if you want something more distinctive before the first release.",
