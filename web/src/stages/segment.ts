@@ -104,7 +104,7 @@ async function fetchWithProgress(
   onProgress?: (loaded: number, total: number) => void,
 ): Promise<ArrayBuffer> {
   // Explicit Cache API rather than the HTTP cache: browsers evict large
-  // opportunistic responses aggressively, and re-downloading 159 MB is the
+  // opportunistic responses aggressively, and re-downloading 210 MB is the
   // difference between "instant" and "broken" on a second visit.
   let cache: Cache | null = null;
   try {
@@ -117,32 +117,55 @@ async function fetchWithProgress(
   }
 
   const res = await fetch(url);
-  if (res.ok && cache) {
+  if (!res.ok) throw new Error(`model fetch failed: ${res.status} ${res.statusText}`);
+
+  // Read the body OURSELVES first, reporting progress, and only cache the
+  // assembled bytes afterwards. `await cache.put(url, res.clone())` before
+  // this point looks harmless and is not: put() drains the whole 210 MB
+  // before it resolves, so the entire download happens silently and the
+  // progress bar never moves — which is exactly the "reads as broken" cold
+  // start this function exists to prevent.
+  const total = Number(res.headers.get("content-length") ?? 0);
+  let body: ArrayBuffer;
+
+  if (!res.body || !total || !onProgress) {
+    body = await res.arrayBuffer();
+  } else {
+    const reader = res.body.getReader();
+    const chunks: Uint8Array[] = [];
+    let loaded = 0;
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      chunks.push(value);
+      loaded += value.length;
+      onProgress(loaded, total);
+    }
+    const buf = new Uint8Array(loaded);
+    let off = 0;
+    for (const c of chunks) {
+      buf.set(c, off);
+      off += c.length;
+    }
+    body = buf.buffer;
+  }
+
+  if (cache) {
     try {
-      await cache.put(url, res.clone());
+      await cache.put(
+        url,
+        new Response(body, {
+          headers: {
+            "content-type": "application/octet-stream",
+            "content-length": String(body.byteLength),
+          },
+        }),
+      );
     } catch {
-      // Quota exceeded. The download still succeeds, it just won't persist.
+      // Quota exceeded. The download still succeeded; it just will not persist.
     }
   }
-  if (!res.ok) throw new Error(`model fetch failed: ${res.status} ${res.statusText}`);
-  const total = Number(res.headers.get("content-length") ?? 0);
-  if (!res.body || !total || !onProgress) return res.arrayBuffer();
-
-  // A 189 MB download with no progress reads as "broken". Report it.
-  const reader = res.body.getReader();
-  const chunks: Uint8Array[] = [];
-  let loaded = 0;
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    chunks.push(value);
-    loaded += value.length;
-    onProgress(loaded, total);
-  }
-  const buf = new Uint8Array(loaded);
-  let off = 0;
-  for (const c of chunks) { buf.set(c, off); off += c.length; }
-  return buf.buffer;
+  return body;
 }
 
 function resizeRgbBilinear(src: Rgb, w: number, h: number): Rgb {
