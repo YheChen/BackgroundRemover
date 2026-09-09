@@ -62,7 +62,9 @@
       "Fixed: ort.env.wasm.numThreads now checks crossOriginIsolated. Requesting threads without SharedArrayBuffer makes ORT fail to initialise rather than degrade.",
       "SHIPPED AND WORKING END TO END. Model uploaded to https://huggingface.co/YheChen/bgremover-onnx (public, 210,363,856 bytes, byte-identical to local). VITE_MODEL_URL set on Vercel and redeployed; the HF URL is verified inlined in the shipped bundle.",
       "Verified live on https://backgroundremover-theta.vercel.app with a 2.6 MP real photo (cat on snow, fur against low-contrast background) fetched cross-origin: WebGPU, clean cutout, fg=0.273, soft=0.029.",
-      "Fixed a self-inflicted bug: `await cache.put(url, res.clone())` drained the whole 210 MB before resolving, so the progress bar never moved. Body is now streamed and reported first, cached after."
+      "Fixed a self-inflicted bug: `await cache.put(url, res.clone())` drained the whole 210 MB before resolving, so the progress bar never moved. Body is now streamed and reported first, cached after.",
+      "EXPERIMENT 1 RESULT: switching stage 2 from BiRefNet_lite to DIS IS-Net (Apache-2.0) cuts the browser model forward from 22.41s to 0.86s on WebGPU -- a 26x speedup -- at equivalent quality (IoU 0.9908 between the two; fg 0.274 vs 0.273 on the test photo). Model is also smaller: 170 MB vs 210 MB.",
+      "The unlock was scripts/patch_maxpool_ceil.py. ORT-web refuses any graph with MaxPool ceil_mode=1. For 2x2/stride-2 pools over even-sized maps ceil and floor agree, so the attribute is decorative -- verified bit-identical (max|diff| = 0) before writing."
     ],
     "queued": [
       "Step 4: FastAPI container for the high-resolution path.",
@@ -73,11 +75,11 @@
     "branch": "main (no commits yet \u2014 scaffold is uncommitted in the working tree)",
     "done": "The project is deployed and functioning end to end: Python pipeline, browser build, Vercel hosting, Hugging Face model hosting. A real photo produces a correct cutout on the live site.",
     "next_steps_in_order": [
-      "1. PERFORMANCE IS NOW THE TOP ISSUE. A 2.6 MP photo takes 62s on the live site and the whole time the tab is frozen, because the pipeline runs on the main thread. Move it into a Web Worker; that fixes the freeze but not the wall time.",
-      "2. Profile where those 62s go. Suspect stage 4: the CG solver is O(band pixels) and a 2.6 MP image has a far larger band than the 208x242 test. Consider capping WORKING_PIXELS lower, or tightening the default band.",
-      "3. Populate eval/images/ and run the eval harness. Still never done; every quality knob is untuned.",
-      "4. Retry fp16 to halve the 210 MB cold start (int8 is a dead end on WebGPU -- see gotchas).",
-      "5. Port stage 6b (REFINE) to TypeScript. Step 4: FastAPI container. Step 5: stage 1 routing."
+      "1. Make isnet-general-use the default browser model: patch it (scripts/patch_maxpool_ceil.py), upload to the HF repo alongside the BiRefNet graph, and switch VITE_MODEL_URL. 26x faster stage 2 for equivalent quality.",
+      "2. Stages 3-6 are now the bottleneck (~20s of a 21s run in the browser, though node measures 4.7s for the same work). Find out why the browser is 4x slower before optimising the algorithms.",
+      "3. Move the pipeline into a Web Worker -- unfreezes the tab AND may fix the post-inference slowdown above.",
+      "4. Stage 3's morphology is O(n*r); a running min/max makes it O(n). Worth ~1.3s.",
+      "5. Populate eval/images/ and score. Still never done."
     ],
     "half_finished_that_will_break": [
       "models.py registers ben2 but it has never been exported or run, and BEN2 folds stages 3-4 into the model so it needs its own pipeline path, not just a different weights file. birefnet-hr is registered but unexported too.",
@@ -125,7 +127,10 @@
     "Hugging Face remains the recommended host: free, CDN-backed, no bandwidth cap on public repos, and it does send CORS headers. Needs `hf auth login` with a WRITE-scoped token -- a Read token authenticates fine and then fails at upload.",
     "Zero-account fallback if HF is ever unavailable: split the model into sub-100MB parts and serve same-origin from Vercel, sidestepping CORS entirely. Costs Vercel bandwidth -- 210 MB per cold visitor against Hobby's 100 GB/month is ~475 visitors, and exceeding the cap PAUSES deployments.",
     "Never `await cache.put(url, res.clone())` before reading a large response body: put() drains the full stream before it resolves, so any progress reporting downstream is dead on arrival. Stream and report first, cache the assembled bytes after. This only reproduced against the real remote URL -- a same-origin local model was fast enough to hide it.",
-    "Live perf datapoint: 2.6 MP photo = 62s on WebGPU on the deployed site, main thread blocked throughout. The 1.9s figure from local testing was a 208x242 image and is not representative."
+    "Live perf datapoint: 2.6 MP photo = 62s on WebGPU on the deployed site, main thread blocked throughout. The 1.9s figure from local testing was a 208x242 image and is not representative.",
+    "onnxruntime-web REFUSES MaxPool with ceil_mode=1 ('using ceil() in shape computation is not yet supported'). For 2x2/stride-2 pools over even feature maps the attribute is decorative; scripts/patch_maxpool_ceil.py strips it and REFUSES to write if the output changes. This is what unblocked IS-Net on WebGPU.",
+    "IS-Net needs DIS normalisation (mean 0.5, std 1.0) and output[0], with sigmoid ALREADY baked in. Feeding it ImageNet normalisation scores IoU 0.16 against a known-good reference instead of 0.99 -- a plausible-looking wrong mask, not an error. Per-model contracts now live in MODELS in web/src/stages/segment.ts.",
+    "Running inference on the WASM EP appears to poison the JS stages that follow: with BiRefNet/WebGPU stages 3-6 took ~7.9s in-browser, with ISNet/WASM the same stages took ~37.8s, while node measures 4.6-4.7s for both. Unexplained; suspect worker-thread or heap contention. Another reason to move the pipeline into a Web Worker."
   ],
   "open_questions_for_user": [
     "Package/CLI name: currently `bgremover` to match the folder. Renaming is one sed away if you want something more distinctive before the first release.",

@@ -15,9 +15,41 @@
 import * as ort from "onnxruntime-web";
 import { plane, type Plane, type Rgb } from "../types";
 
+/**
+ * Per-model preprocessing and output contract. These are NOT interchangeable
+ * and getting one wrong produces a plausible-looking but wrong mask rather
+ * than an error: feeding ISNet ImageNet normalisation scores IoU 0.16 against
+ * a known-good reference, instead of 0.99.
+ */
+interface ModelSpec {
+  size: number;
+  mean: [number, number, number];
+  std: [number, number, number];
+  /** Which graph output carries the finest prediction. */
+  outputIndex: number;
+  /** Whether the graph already applied sigmoid. */
+  sigmoidBaked: boolean;
+}
+
+const MODELS: Record<string, ModelSpec> = {
+  "birefnet-lite": {
+    size: 1024,
+    mean: [0.485, 0.456, 0.406],
+    std: [0.229, 0.224, 0.225],
+    outputIndex: -1,
+    sigmoidBaked: false,
+  },
+  "isnet-general-use": {
+    size: 1024,
+    mean: [0.5, 0.5, 0.5],
+    std: [1.0, 1.0, 1.0],
+    outputIndex: 0,
+    sigmoidBaked: true,
+  },
+};
+
+let spec: ModelSpec = MODELS["birefnet-lite"];
 const SIZE = 1024;
-const MEAN = [0.485, 0.456, 0.406];
-const STD = [0.229, 0.224, 0.225];
 
 export type Backend = "webgpu" | "wasm";
 
@@ -30,9 +62,11 @@ export function backend(): Backend | null {
 
 export async function load(
   modelUrl: string,
+  modelKey: keyof typeof MODELS = "birefnet-lite",
   onProgress?: (loaded: number, total: number) => void,
 ): Promise<Backend> {
   if (session) return activeBackend!;
+  spec = MODELS[modelKey] ?? MODELS["birefnet-lite"];
 
   // Resolve against the DOCUMENT, not this module. A bare "./ort/" is
   // resolved relative to wherever the bundler put this file — in Vite dev
@@ -86,12 +120,14 @@ export async function probabilityMap(image: Rgb): Promise<Plane> {
     `[bgremover] stage 2 forward: ${((performance.now() - t0) / 1000).toFixed(2)}s ` +
       `on ${activeBackend}`,
   );
-  const logits = output[session.outputNames[0]].data as Float32Array;
+  const names = session.outputNames;
+  const idx = spec.outputIndex < 0 ? names.length + spec.outputIndex : spec.outputIndex;
+  const logits = output[names[idx]].data as Float32Array;
 
   const small = plane(SIZE, SIZE);
   for (let i = 0; i < SIZE * SIZE; i++) {
-    const z = Math.max(-60, Math.min(60, logits[i]));
-    small.data[i] = 1 / (1 + Math.exp(-z));
+    const v = logits[i];
+    small.data[i] = spec.sigmoidBaked ? v : 1 / (1 + Math.exp(-Math.max(-60, Math.min(60, v))));
   }
   return resizeBilinear(small, image.width, image.height);
 }
@@ -102,7 +138,7 @@ function preprocess(image: Rgb): Float32Array {
   const planeSize = SIZE * SIZE;
   for (let i = 0; i < planeSize; i++) {
     for (let c = 0; c < 3; c++) {
-      out[c * planeSize + i] = (resized.data[i * 3 + c] - MEAN[c]) / STD[c];
+      out[c * planeSize + i] = (resized.data[i * 3 + c] - spec.mean[c]) / spec.std[c];
     }
   }
   return out;

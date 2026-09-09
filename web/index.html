@@ -85,7 +85,7 @@ h1 { font-size:1.22rem; margin:0; letter-spacing:-.02em; font-weight:650; }
     linear-gradient(45deg,var(--check) 25%,transparent 25%,transparent 75%,var(--check) 75%);
   background-size:18px 18px; background-position:0 0,9px 9px;
 }
-canvas { max-width:100%; max-height:64vh; display:block; border-radius:3px; }
+#canvas { max-width:100%; max-height:64vh; display:block; border-radius:3px; }
 
 .controls {
   display:flex; flex-wrap:wrap; gap:18px; align-items:flex-end;
@@ -106,6 +106,54 @@ button.primary:hover { background:var(--accent-ink); border-color:var(--accent-i
 button:disabled { opacity:.45; cursor:not-allowed; }
 .spacer { flex:1 1 auto; }
 :focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
+
+/* mode switch */
+.segmented { display:inline-flex; border:1px solid var(--rule-hard); border-radius:6px; overflow:hidden; }
+.segmented button {
+  border:0; border-radius:0; background:var(--surface); color:var(--muted);
+  padding:8px 15px; font-size:.84rem; font-weight:600;
+}
+.segmented button + button { border-left:1px solid var(--rule); }
+.segmented button[aria-checked="true"] { background:var(--accent); color:#fff; }
+.modebar { display:flex; align-items:center; gap:14px; flex-wrap:wrap; margin:0 0 18px; }
+.modebar p { margin:0; font-size:.84rem; color:var(--muted); }
+
+/* trace editor */
+#traceView { display:none; margin-top:22px; }
+#traceView.show { display:block; }
+.tools {
+  display:flex; flex-wrap:wrap; gap:10px; align-items:center;
+  padding:10px 12px; margin-bottom:12px;
+  border:1px solid var(--rule); border-radius:8px; background:var(--surface);
+}
+.toolgroup { display:inline-flex; border:1px solid var(--rule-hard); border-radius:6px; overflow:hidden; }
+.toolgroup button {
+  border:0; border-radius:0; background:var(--surface); color:var(--ink-soft);
+  padding:7px 13px; font-size:.84rem;
+}
+.toolgroup button + button { border-left:1px solid var(--rule); }
+.toolgroup button[aria-checked="true"] {
+  background:var(--accent-wash); color:var(--accent-ink); font-weight:650;
+  box-shadow:inset 0 -2px 0 var(--accent);
+}
+.viewport {
+  position:relative; height:64vh; overflow:hidden;
+  border:1px solid var(--rule); border-radius:8px; background:var(--surface);
+  background-image:
+    linear-gradient(45deg,var(--check) 25%,transparent 25%,transparent 75%,var(--check) 75%),
+    linear-gradient(45deg,var(--check) 25%,transparent 25%,transparent 75%,var(--check) 75%);
+  background-size:18px 18px; background-position:0 0,9px 9px;
+}
+#trace {
+  width:100%; height:100%; display:block; border-radius:0;
+  cursor:crosshair; touch-action:none; outline:none;
+}
+#traceCount { font-family:var(--f-mono); font-size:.74rem; color:var(--muted); font-variant-numeric:tabular-nums; }
+kbd {
+  font-family:var(--f-mono); font-size:.76em; padding:1px 5px;
+  border:1px solid var(--rule-hard); border-bottom-width:2px; border-radius:4px;
+  background:var(--surface-2); color:var(--ink-soft);
+}
 
 .note {
   margin-top:14px; font-size:.8rem; color:var(--muted);
@@ -129,6 +177,14 @@ button:disabled { opacity:.45; cursor:not-allowed; }
   </header>
   <p class="sub">Runs entirely in your browser. Nothing is uploaded, and it works offline once the model is cached.</p>
 
+  <div class="modebar">
+    <div class="segmented" role="radiogroup" aria-label="How to find the subject">
+      <button type="button" id="modeAuto" role="radio" aria-checked="true">Automatic</button>
+      <button type="button" id="modeManual" role="radio" aria-checked="false">Trace by hand</button>
+    </div>
+    <p id="modeNote">A 210&nbsp;MB model finds the subject for you. Downloaded once, then cached.</p>
+  </div>
+
   <div id="drop" tabindex="0" role="button" aria-label="Choose an image">
     <h2>Drop an image here</h2>
     <p>or click to choose &middot; JPG, PNG, WebP</p>
@@ -141,6 +197,25 @@ button:disabled { opacity:.45; cursor:not-allowed; }
   </div>
 
   <div id="err"></div>
+
+  <div id="traceView">
+    <div class="tools">
+      <div class="toolgroup" role="radiogroup" aria-label="Trace tool">
+        <button type="button" data-tool="curve" role="radio" aria-checked="false">Curves</button>
+        <button type="button" data-tool="edge" role="radio" aria-checked="true">Edges</button>
+        <button type="button" data-tool="free" role="radio" aria-checked="false">Freehand</button>
+      </div>
+      <span id="traceCount">0 points</span>
+      <div class="spacer"></div>
+      <button type="button" id="tFit">Fit</button>
+      <button type="button" id="tUndo">Undo</button>
+      <button type="button" id="tClear">Clear</button>
+      <button type="button" id="tClose">Close loop</button>
+      <button type="button" id="tCut" class="primary">Cut out</button>
+    </div>
+    <div class="viewport"><canvas id="trace" tabindex="0"></canvas></div>
+    <div class="note" id="traceHint"></div>
+  </div>
 
   <div id="work">
     <div class="stage"><canvas id="canvas"></canvas></div>
@@ -163,6 +238,7 @@ button:disabled { opacity:.45; cursor:not-allowed; }
         </select>
       </label>
       <div class="spacer"></div>
+      <button id="editTrace" hidden>Edit trace</button>
       <button id="rerun">Re-run</button>
       <button id="dlMatte">Download matte</button>
       <button id="dl" class="primary">Download PNG</button>

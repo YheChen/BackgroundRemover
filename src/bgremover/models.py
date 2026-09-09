@@ -87,6 +87,17 @@ register(
 
 register(
     ModelSpec(
+        key="isnet-general-use",
+        licence="Apache-2.0",
+        hf_repo=None,
+        onnx_filename="isnet-general-use.onnx",
+        input_size=1024,
+        notes="DIS IS-Net. No deformable convs -> 0.86s on WebGPU vs BiRefNet's 22.4s.",
+    )
+)
+
+register(
+    ModelSpec(
         key="ben2",
         licence="MIT",
         hf_repo="PramaLLC/BEN2",
