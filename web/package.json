@@ -13,7 +13,8 @@
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
-    "verify:matte": "tsx scripts/verify-matte.ts"
+    "verify:matte": "tsx scripts/verify-matte.ts",
+    "profile": "tsx scripts/profile-stages.ts"
   },
   "dependencies": {
     "onnxruntime-web": "1.23.0"

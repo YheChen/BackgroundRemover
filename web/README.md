@@ -111,3 +111,36 @@ Current agreement: mean |diff| 0.000161, max 0.0039 — the 1/255 floor.
   impression. Quantising to int8 is the obvious next move.
 - **Mobile is untested.** `WORKING_PIXELS` is capped at 1600² to stay inside
   tab memory, but that number is a guess until someone profiles a phone.
+
+
+## Where the time actually goes
+
+Measured on a 2.56 MP photo (1959x1306), M-series laptop, `?ep=` to force a
+provider and `npm run profile` for the JS stages:
+
+| Stage | Time | Note |
+|---|---|---|
+| **2 · segment (WebGPU)** | **22.41 s** | 75% of the pipeline |
+| 2 · segment (WASM, threaded) | > 67 s | measurably worse; WebGPU is right |
+| 2 · segment (native ONNX, CPU) | 3.72 s | the same graph, outside the browser |
+| 3 · trimap | 1.37 s | band = 9.0% of pixels |
+| 4 · matte (CG) | 2.97 s | scales with band size |
+| 5 · decontaminate | 0.25 s | |
+| 6 · guided upsample | ~0 s | no-op when sizes already match |
+
+Two things fall out of this.
+
+**Stage 2 dominates, and the browser is ~6x slower than native at the exact
+same graph.** Not WASM-vs-native slowness — this is WebGPU losing to a native
+CPU run. The cause is not yet established: `GridSample` *is* registered in
+ORT-web's WebGPU backend, so the obvious "the deform-conv rewrite is being
+partitioned to CPU" theory is unproven. ORT's "some nodes were not assigned
+to the preferred execution providers" warning appears on healthy graphs too.
+
+What is certain is that the `--web` rewrite inflated the graph: ~33
+`DeformConv` nodes became ~300 `GridSample` + ~300 `Conv`, and the node
+section grew from 5.8 MB to 26 MB. More work is being done, whoever does it.
+
+**Everything downstream of the model is already cheap.** Stages 3-6 total
+4.6 s, and 1.37 s of that is stage 3 doing O(n·r) morphology where a running
+min/max would be O(n). Optimising the matting solver would be premature.

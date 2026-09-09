@@ -48,10 +48,16 @@ export async function load(
 
   const bytes = await fetchWithProgress(modelUrl, onProgress);
 
-  // WebGPU first; it is roughly 20x multi-threaded WASM on this workload.
-  // Some graphs fall back to CPU for most nodes, so failure here is normal
-  // and not worth surfacing to the user beyond the badge in the UI.
-  for (const ep of ["webgpu", "wasm"] as const) {
+  // Provider order can be forced with ?ep=wasm / ?ep=webgpu for benchmarking.
+  // Which one actually wins is graph-dependent, not a given -- see the note
+  // in web/README.md about GridSample partitioning.
+  const forced = new URLSearchParams(location.search).get("ep");
+  const order =
+    forced === "wasm" ? (["wasm"] as const)
+    : forced === "webgpu" ? (["webgpu"] as const)
+    : (["webgpu", "wasm"] as const);
+
+  for (const ep of order) {
     try {
       session = await ort.InferenceSession.create(bytes, {
         executionProviders: [ep],
@@ -60,7 +66,7 @@ export async function load(
       activeBackend = ep;
       return ep;
     } catch (err) {
-      if (ep === "wasm") throw err;
+      if (ep === order[order.length - 1]) throw err;
       console.warn(`WebGPU unavailable, falling back to WASM:`, err);
     }
   }
@@ -74,7 +80,12 @@ export async function probabilityMap(image: Rgb): Promise<Plane> {
   const feeds: Record<string, ort.Tensor> = {
     [session.inputNames[0]]: new ort.Tensor("float32", input, [1, 3, SIZE, SIZE]),
   };
+  const t0 = performance.now();
   const output = await session.run(feeds);
+  console.info(
+    `[bgremover] stage 2 forward: ${((performance.now() - t0) / 1000).toFixed(2)}s ` +
+      `on ${activeBackend}`,
+  );
   const logits = output[session.outputNames[0]].data as Float32Array;
 
   const small = plane(SIZE, SIZE);
